@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { Alert, Modal, Pressable, StyleSheet, Text, View } from 'react-native';
+import { Modal, Pressable, StyleSheet, Text, View } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { Banner, Button, Card, Chip, ChipRow, EmptyState, Field, Money, ProgressBar, Screen } from '../../src/components/ui';
 import { useApp } from '../../src/context/AppContext';
@@ -11,7 +11,7 @@ import type { BudgetStatus, Category } from '../../src/types';
 import { addMonths, formatMonthFR, monthOf, todayISO } from '../../src/utils/dates';
 import { errorMessage } from '../../src/utils/errors';
 import { formatFCFA, formatNumber, parseAmount } from '../../src/utils/money';
-import { confirmAsync, showError } from '../../src/utils/ui';
+import { confirmAsync, notify, showError } from '../../src/utils/ui';
 
 interface Editing { budget?: BudgetStatus; categoryId: number | null; digits: string }
 
@@ -67,7 +67,7 @@ export default function Budgets() {
     try {
       const n = await copyBudgets(db, addMonths(month, -1), month);
       await refresh();
-      if (n === 0) Alert.alert('Rien à copier', 'Les catégories du mois précédent ont déjà un budget ou sont désactivées.');
+      if (n === 0) notify('Rien à copier', 'Les catégories du mois précédent ont déjà un budget ou sont désactivées.');
     } catch (e) {
       showError(e);
     }

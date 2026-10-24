@@ -1,3 +1,4 @@
+import { Platform } from 'react-native';
 import { Directory, File, Paths } from 'expo-file-system';
 import * as DocumentPicker from 'expo-document-picker';
 import * as Sharing from 'expo-sharing';
@@ -19,6 +20,20 @@ const isCancel = (e: unknown) => e instanceof Error && /cancel|annul|dismiss/i.t
 export async function exportBackup(db: Db, mode: 'save' | 'share'): Promise<ExportResult> {
   const text = serializeBackup(await createBackup(db));
   const name = backupFileName();
+
+  if (Platform.OS === 'web') {
+    // Navigateur : téléchargement du fichier dans le dossier de téléchargements.
+    const url = URL.createObjectURL(new Blob([text], { type: 'application/json' }));
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = name;
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
+    URL.revokeObjectURL(url);
+    await markBackupExported(db);
+    return 'saved';
+  }
 
   if (mode === 'save') {
     let dir: Directory;
@@ -53,6 +68,7 @@ export async function pickAndValidateBackup(): Promise<BackupFile | null> {
   if (typeof asset.size === 'number' && asset.size > BACKUP_MAX_BYTES) {
     throw new BackupError('Le fichier est trop volumineux pour être une sauvegarde MobiBudget.');
   }
-  const text = await new File(asset.uri).text();
+  // Web : `asset.file` est un File du navigateur ; Android : lecture via expo-file-system.
+  const text = asset.file ? await asset.file.text() : await new File(asset.uri).text();
   return parseBackup(text);
 }

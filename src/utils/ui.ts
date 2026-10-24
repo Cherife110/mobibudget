@@ -1,8 +1,21 @@
-import { Alert } from 'react-native';
+import { Alert, Platform } from 'react-native';
 import { errorMessage } from './errors';
+
+/** Sur le web, `Alert.alert` ne fait rien : on utilise les boîtes du navigateur. */
+const isWeb = Platform.OS === 'web';
+
+/** Message d'information (un seul bouton). */
+export function notify(title: string, message: string): void {
+  if (isWeb) {
+    window.alert(`${title}\n\n${message}`);
+    return;
+  }
+  Alert.alert(title, message);
+}
 
 /** Boîte de confirmation (retourne true si l'utilisateur confirme). */
 export function confirmAsync(title: string, message: string, confirmLabel: string, destructive = true): Promise<boolean> {
+  if (isWeb) return Promise.resolve(window.confirm(`${title}\n\n${message}`));
   return new Promise((resolve) => {
     Alert.alert(
       title,
@@ -17,5 +30,7 @@ export function confirmAsync(title: string, message: string, confirmLabel: strin
 }
 
 export function showError(e: unknown, title = 'Action impossible'): void {
-  Alert.alert(title, errorMessage(e));
+  notify(title, errorMessage(e));
 }
+
+export const IS_WEB = isWeb;

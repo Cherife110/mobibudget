@@ -5,7 +5,7 @@ import { exportBackup, pickAndValidateBackup } from '../services/backup.files';
 import { restoreBackup, summarizeBackup, type BackupFile } from '../services/backup.service';
 import { formatNumber } from '../utils/money';
 import { formatDateFR } from '../utils/dates';
-import { confirmAsync, showError } from '../utils/ui';
+import { IS_WEB, confirmAsync, notify, showError } from '../utils/ui';
 
 /** Export et restauration avec toutes les confirmations (utilisé dans Paramètres et à la première utilisation). */
 export function useBackupActions(options: { onRestored?: () => void } = {}) {
@@ -17,8 +17,8 @@ export function useBackupActions(options: { onRestored?: () => void } = {}) {
       setBusy(true);
       try {
         const r = await exportBackup(db, mode);
-        if (r === 'saved') Alert.alert('Sauvegarde enregistrée', 'Le fichier a été enregistré dans le dossier choisi. Conservez-le en lieu sûr : il n\'est pas chiffré.');
-        if (r === 'shared') Alert.alert('Sauvegarde exportée', 'Pensez à conserver ce fichier en lieu sûr : il n\'est pas chiffré.');
+        if (r === 'saved') notify('Sauvegarde enregistrée', (IS_WEB ? 'Le fichier a été téléchargé (dossier Téléchargements du navigateur).' : 'Le fichier a été enregistré dans le dossier choisi.') + ' Conservez-le en lieu sûr : il n\'est pas chiffré.');
+        if (r === 'shared') notify('Sauvegarde exportée', 'Pensez à conserver ce fichier en lieu sûr : il n\'est pas chiffré.');
         await refresh();
         return r !== 'cancelled';
       } catch (e) {
@@ -38,6 +38,14 @@ export function useBackupActions(options: { onRestored?: () => void } = {}) {
       const detail = `Sauvegarde${when} : ${formatNumber(s.accounts)} compte(s), ${formatNumber(s.transactions)} opération(s), ${formatNumber(s.budgets)} budget(s).`;
       if (!hasExistingData) {
         const ok = await confirmAsync('Restaurer cette sauvegarde ?', detail, 'Restaurer', false);
+        if (!ok) return;
+      } else if (IS_WEB) {
+        // Le navigateur n'offre pas de boîte à 3 boutons : on rappelle la recommandation dans le message.
+        const ok = await confirmAsync(
+          'Remplacer toutes vos données ?',
+          `${detail}\n\nLa restauration EFFACE ET REMPLACE toutes les données actuelles. Annulez et exportez d'abord une sauvegarde si vous n'en avez pas.`,
+          'Remplacer',
+        );
         if (!ok) return;
       } else {
         // 3 choix : annuler / sauvegarder d'abord / remplacer
@@ -64,7 +72,7 @@ export function useBackupActions(options: { onRestored?: () => void } = {}) {
       try {
         await restoreBackup(db, backup);
         await refresh();
-        Alert.alert('Restauration terminée', 'Vos données ont été restaurées.');
+        notify('Restauration terminée', 'Vos données ont été restaurées.');
         options.onRestored?.();
       } catch (e) {
         showError(e, 'Restauration impossible — vos données actuelles sont intactes');

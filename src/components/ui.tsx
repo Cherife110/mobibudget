@@ -138,8 +138,9 @@ export function Money({
 }: { amount: number; kind?: 'auto' | 'income' | 'expense' | 'transfer' | 'plain'; size?: number; signed?: boolean; style?: StyleProp<ViewStyle> }) {
   let color = colors.text;
   let text = formatFCFA(amount);
-  if (kind === 'income') { color = colors.income; text = `+${formatFCFA(amount)}`; }
-  else if (kind === 'expense') { color = colors.expense; text = `-${formatFCFA(amount)}`; }
+  // Un montant nul reste neutre : « 0 FCFA », jamais « +0 » ni « -0 ».
+  if (kind === 'income' && amount !== 0) { color = colors.income; text = `+${formatFCFA(amount)}`; }
+  else if (kind === 'expense' && amount !== 0) { color = colors.expense; text = `-${formatFCFA(amount)}`; }
   else if (kind === 'transfer') { color = colors.transfer; }
   else if (kind === 'auto') {
     color = amount > 0 ? colors.income : amount < 0 ? colors.expense : colors.text;

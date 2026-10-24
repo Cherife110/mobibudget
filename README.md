@@ -13,10 +13,21 @@ npm install
 npm run typecheck      # TypeScript strict
 npm test               # 64 tests sur SQLite réel (règles métier)
 npm start              # serveur de développement (Expo Go sur le téléphone, même Wi‑Fi)
+npm run web            # version navigateur, pour tester sur le PC (voir ci-dessous)
 ```
 
 > Sur ton téléphone, `npm start` + l'app **Expo Go** permettent d'essayer l'application avant de produire l'APK.
 > (Expo Go reste en mode développement : l'APK est la version définitive.)
+
+## Tester dans le navigateur (PC)
+
+```bash
+npm run web      # ouvre http://localhost:8081
+```
+Pratique pour développer et vérifier l'interface sans émulateur. Les données sont stockées **dans le navigateur**
+(effacer les données du site les supprime) et ne sont pas liées à celles du téléphone : pour les passer de l'un à l'autre,
+utilise l'export / la restauration. Sur le web, l'export est un téléchargement et les confirmations utilisent les boîtes du navigateur.
+Le web sert à tester : l'application visée reste l'APK Android. `metro.config.js` est nécessaire pour le moteur SQLite web (WebAssembly).
 
 ## Produire l'APK installable
 
