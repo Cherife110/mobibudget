@@ -5,8 +5,8 @@ import { setup, clock, count, type Fixture } from './helpers/fixtures';
 import { openTestDb } from './helpers/testDb';
 import { createTransaction } from '../src/services/transaction.service';
 import { setBudget } from '../src/services/budget.service';
-import { archiveAccount } from '../src/services/account.service';
-import { updateCategory } from '../src/services/category.service';
+import { archiveAccount, createAccount } from '../src/services/account.service';
+import { updateCategory, seedDefaultCategories, listCategories } from '../src/services/category.service';
 import { getAccountsWithBalances, getGlobalBalance } from '../src/services/balance.service';
 import { getBudgetStatuses } from '../src/services/budget.service';
 import {
@@ -148,8 +148,6 @@ describe('persistance après redémarrage', () => {
     const path = join(dir, 'mobibudget.db');
     try {
       const first = await openTestDb(path);
-      const { createAccount } = await import('../src/services/account.service');
-      const { seedDefaultCategories, listCategories } = await import('../src/services/category.service');
       await seedDefaultCategories(first.db, {}, clock);
       const acc = await createAccount(first.db, { name: 'Espèces', type: 'cash', initialBalance: 10_000, referenceDate: '2026-10-01' }, clock);
       const cat = (await listCategories(first.db, { kind: 'expense' }))[0];

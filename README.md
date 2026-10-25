@@ -11,7 +11,7 @@ L'application ne demande **aucune permission Android** (y compris `INTERNET`, vo
 ```bash
 npm install
 npm run typecheck      # TypeScript strict
-npm test               # 64 tests sur SQLite réel (règles métier)
+npm test               # 76 tests sur SQLite réel (règles métier)
 npm start              # serveur de développement (Expo Go sur le téléphone, même Wi‑Fi)
 npm run web            # version navigateur, pour tester sur le PC (voir ci-dessous)
 ```
@@ -71,7 +71,7 @@ Ce build local est signé avec la clé de debug du modèle Expo : installable, m
 | Dates | `AAAA-MM-JJ` en heure locale ; date passée autorisée (dépense oubliée), future refusée, antérieure à la date de référence du compte refusée |
 | Budgets | plafond par catégorie de dépense et par mois ; « dépensé » toujours calculé ; alerte à 80 %, puis à 100 % (atteint/dépassé) ; jamais bloquant |
 | Comptes archivés | consultables, plus d'opérations, hors solde global |
-| Catégories | revenu ≠ dépense (vérifié) ; désactivables sans toucher à l'historique |
+| Catégories | revenu ≠ dépense (vérifié) ; renommables ; archivables/réactivables sans toucher à l'historique ; suppression **seulement si aucune opération ne l'utilise** ; réaffectation des opérations vers une catégorie du même type (budgets reportés, ceux de la cible prévalent) |
 | Évolution du solde | solde réellement reconstitué à chaque date (pas la variation du jour) |
 
 **Remboursements** : un remboursement reçu s'enregistre comme une *entrée* de la catégorie « Remboursement reçu ».
@@ -111,4 +111,5 @@ Clés étrangères activées (`PRAGMA foreign_keys = ON`), index sur dates / com
 - Sauvegarde non chiffrée.
 - Pas de saisie récurrente, de pièces jointes, de multi-devises, de mode sombre (mode clair forcé).
 - Mono-appareil : pas de synchronisation (changer de téléphone = export puis restauration).
+- Outils de développement : TypeScript 6 et Jest 30 (versions attendues par Expo SDK 58). Ne lance pas `npm audit fix --force` : il ferait reculer Expo de plusieurs années.
 - Les alertes `npm audit` concernent `@expo/cli` (outil de développement, non embarqué dans l'APK).

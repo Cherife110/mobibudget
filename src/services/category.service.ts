@@ -3,11 +3,18 @@ import type { Category, CategoryKind } from '../types';
 import { ValidationError } from '../utils/errors';
 import { nowISO } from '../utils/dates';
 import {
+  deleteBudgetsOfCategory,
+  deleteCategoryRow,
   findCategoryByName,
   getCategory,
+  getCategoryUsage,
   insertCategory,
   listCategories,
+  listCategoryUsage,
+  moveCategoryBudgets,
+  moveCategoryTransactions,
   updateCategoryRow,
+  type CategoryUsage,
 } from '../repositories/categories.repository';
 import { DEFAULT_EXPENSE_CATEGORIES, DEFAULT_INCOME_CATEGORIES } from '../constants/defaults';
 import type { Clock } from './clock';
@@ -79,4 +86,70 @@ export async function seedDefaultCategories(
   });
 }
 
-export { getCategory, listCategories };
+/**
+ * Supprime une catégorie qui n'est utilisée par AUCUNE opération.
+ * Les budgets qui la concernent doivent être supprimés explicitement (`deleteBudgets: true`),
+ * sinon l'opération est refusée. Une catégorie utilisée doit être archivée ou réaffectée, jamais supprimée.
+ */
+export async function deleteCategory(db: Db, id: number, opts: { deleteBudgets?: boolean } = {}): Promise<void> {
+  await db.transaction(async (tx) => {
+    const category = await getCategory(tx, id);
+    if (!category) throw new ValidationError('Catégorie introuvable.');
+    const usage = await getCategoryUsage(tx, id);
+    if (usage.transactions > 0) {
+      throw new ValidationError(
+        `« ${category.name} » est utilisée par ${usage.transactions} opération${usage.transactions > 1 ? 's' : ''} : elle ne peut pas être supprimée. ` +
+          `Archivez-la, ou réaffectez ses opérations vers une autre catégorie.`,
+      );
+    }
+    if (usage.budgets > 0 && !opts.deleteBudgets) {
+      throw new ValidationError(
+        `« ${category.name} » a ${usage.budgets} budget${usage.budgets > 1 ? 's' : ''} mensuel${usage.budgets > 1 ? 's' : ''}. Confirmez leur suppression pour supprimer la catégorie.`,
+      );
+    }
+    await deleteBudgetsOfCategory(tx, id);
+    await deleteCategoryRow(tx, id);
+  });
+}
+
+export interface ReassignResult {
+  transactions: number;
+  budgetsMoved: number;
+  budgetsDropped: number;
+}
+
+/**
+ * Réaffecte toutes les opérations (et les budgets) d'une catégorie vers une autre du MÊME type
+ * (revenu → revenu, dépense → dépense). Les montants, dates et soldes ne changent pas.
+ * Tout se fait dans une transaction : en cas d'erreur, rien n'est modifié.
+ */
+export async function reassignCategory(
+  db: Db,
+  fromId: number,
+  toId: number,
+  opts: { archiveSource?: boolean } = {},
+  clock: Clock = {},
+): Promise<ReassignResult> {
+  return db.transaction(async (tx) => {
+    if (fromId === toId) throw new ValidationError('Choisissez une autre catégorie de destination.');
+    const from = await getCategory(tx, fromId);
+    const to = await getCategory(tx, toId);
+    if (!from || !to) throw new ValidationError('Catégorie introuvable.');
+    if (from.kind !== to.kind) {
+      throw new ValidationError(
+        from.kind === 'expense'
+          ? `« ${to.name} » est une catégorie de revenu : les dépenses ne peuvent être réaffectées que vers une catégorie de dépense.`
+          : `« ${to.name} » est une catégorie de dépense : les entrées ne peuvent être réaffectées que vers une catégorie de revenu.`,
+      );
+    }
+    if (!to.active) throw new ValidationError(`La catégorie « ${to.name} » est désactivée : réactivez-la avant d'y réaffecter des opérations.`);
+    const now = nowISO(clock.now);
+    const transactions = await moveCategoryTransactions(tx, fromId, toId, now);
+    const budgets = await moveCategoryBudgets(tx, fromId, toId, now);
+    if (opts.archiveSource) await updateCategoryRow(tx, fromId, { name: from.name, active: false }, now);
+    return { transactions, budgetsMoved: budgets.moved, budgetsDropped: budgets.dropped };
+  });
+}
+
+export { getCategory, listCategories, getCategoryUsage, listCategoryUsage };
+export type { CategoryUsage };

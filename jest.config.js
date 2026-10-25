@@ -6,7 +6,19 @@ module.exports = {
   transform: {
     '^.+\\.tsx?$': [
       'ts-jest',
-      { isolatedModules: true, tsconfig: { module: 'commonjs', moduleResolution: 'node', target: 'es2022', esModuleInterop: true, strict: true, skipLibCheck: true, types: ['jest', 'node'] } },
+      {
+        tsconfig: {
+          module: 'node16',
+          moduleResolution: 'node16',
+          target: 'es2022',
+          esModuleInterop: true,
+          strict: true,
+          skipLibCheck: true,
+          isolatedModules: true,
+          rootDir: '.',
+          types: ['jest', 'node'],
+        },
+      },
     ],
   },
 };
