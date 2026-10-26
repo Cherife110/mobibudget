@@ -21,13 +21,13 @@ describe('transactions', () => {
     expect(t).toMatchObject({ type: 'income', amount: 30_000, accountId: f.cash.id, toAccountId: null, description: "Salaire d'octobre", date: '2026-10-05' });
     expect(t.createdAt).toBe(t.updatedAt);
     expect(await getAccountBalance(f.db, f.cash.id)).toBe(80_000);
-    expect(await getGlobalBalance(f.db)).toBe(200_000);
+    expect((await getGlobalBalance(f.db)).total).toBe(200_000);
   });
 
   test('enregistrement d\'une dépense : les soldes diminuent', async () => {
     await createTransaction(f.db, expense(), clock);
     expect(await getAccountBalance(f.db, f.cash.id)).toBe(37_500);
-    expect(await getGlobalBalance(f.db)).toBe(157_500);
+    expect((await getGlobalBalance(f.db)).total).toBe(157_500);
   });
 
   test('transfert entre deux comptes : mouvements opposés, solde global inchangé', async () => {
@@ -35,7 +35,7 @@ describe('transactions', () => {
     expect(t).toMatchObject({ type: 'transfer', categoryId: null, toAccountId: f.momo.id });
     expect(await getAccountBalance(f.db, f.cash.id)).toBe(40_000);
     expect(await getAccountBalance(f.db, f.momo.id)).toBe(30_000);
-    expect(await getGlobalBalance(f.db)).toBe(170_000);
+    expect((await getGlobalBalance(f.db)).total).toBe(170_000);
   });
 
   test('calcul du solde global avec plusieurs opérations (formule complète)', async () => {
@@ -46,13 +46,13 @@ describe('transactions', () => {
     expect(await getAccountBalance(f.db, f.cash.id)).toBe(85_000);
     expect(await getAccountBalance(f.db, f.momo.id)).toBe(7_500);
     expect(await getAccountBalance(f.db, f.bank.id)).toBe(95_000);
-    expect(await getGlobalBalance(f.db)).toBe(187_500);
+    expect((await getGlobalBalance(f.db)).total).toBe(187_500);
   });
 
   test('un solde peut devenir négatif et reste compté dans le solde global', async () => {
     await createTransaction(f.db, expense({ amount: 70_000, accountId: f.momo.id }), clock);
     expect(await getAccountBalance(f.db, f.momo.id)).toBe(-50_000);
-    expect(await getGlobalBalance(f.db)).toBe(100_000);
+    expect((await getGlobalBalance(f.db)).total).toBe(100_000);
   });
 
   test('modification : soldes recalculés, updatedAt change, createdAt conservé', async () => {
@@ -70,7 +70,7 @@ describe('transactions', () => {
   test('on peut changer le type d\'une opération (dépense → transfert)', async () => {
     const t = await createTransaction(f.db, expense(), clock);
     await updateTransaction(f.db, t.id, { type: 'transfer', amount: 12_500, accountId: f.cash.id, toAccountId: f.bank.id, date: '2026-10-10' }, clock);
-    expect(await getGlobalBalance(f.db)).toBe(170_000);
+    expect((await getGlobalBalance(f.db)).total).toBe(170_000);
     expect((await getTransaction(f.db, t.id))?.categoryName).toBeNull();
   });
 
@@ -149,7 +149,7 @@ describe('transactions', () => {
       }),
     ).rejects.toThrow(ValidationError);
     expect(await count(f.db, 'transactions')).toBe(0);
-    expect(await getGlobalBalance(f.db)).toBe(170_000);
+    expect((await getGlobalBalance(f.db)).total).toBe(170_000);
   });
 
   test('opérations sur un compte archivé : modification et suppression bloquées', async () => {
@@ -178,7 +178,7 @@ describe('transactions', () => {
     expect(await listTransactions(f.db, { search: 'introuvable' })).toHaveLength(0);
 
     const s = await summarizeFilter(f.db, {});
-    expect(s).toEqual({ count: 4, income: 30_000, expense: 15_500 });                        // transfert exclu des totaux
+    expect(s).toEqual({ count: 4, income: 30_000, expense: 15_500, excludedCount: 0 });                        // transfert exclu des totaux
   });
 
   test('les requêtes sont paramétrées : une saisie hostile reste du texte', async () => {

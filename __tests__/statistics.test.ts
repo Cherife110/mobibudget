@@ -28,7 +28,7 @@ describe('statistiques', () => {
     expect(await getTotals(e.db, '2026-10-01', '2026-10-31')).toEqual({ income: 0, expense: 0, net: 0, savingsRate: null });
     expect(await getCategoryBreakdown(e.db, '2026-10-01', '2026-10-31')).toEqual([]);
     expect((await getDailySeries(e.db, '2026-10-01', '2026-10-03')).map((d) => [d.income, d.expense])).toEqual([[0, 0], [0, 0], [0, 0]]);
-    expect(await getGlobalBalance(e.db)).toBe(0);
+    expect((await getGlobalBalance(e.db)).total).toBe(0);
     expect(await getAccountsWithBalances(e.db)).toEqual([]);
     expect((await getBalanceHistory(e.db, '2026-10-01', '2026-10-03')).map((p) => p.balance)).toEqual([0, 0, 0]);
     const cmp = await getPeriodComparison(e.db, 'month', '2026-10-24');
@@ -46,7 +46,7 @@ describe('statistiques', () => {
     expect(day).toMatchObject({ income: 0, expense: 0, net: 0 });
     const series = await getDailySeries(f.db, '2026-10-12', '2026-10-12');
     expect(series).toEqual([{ date: '2026-10-12', income: 0, expense: 0 }]);
-    expect(await getGlobalBalance(f.db)).toBe(170_000 + 30_000 - 15_000);                  // le transfert ne change pas le global
+    expect((await getGlobalBalance(f.db)).total).toBe(170_000 + 30_000 - 15_000);                  // le transfert ne change pas le global
   });
 
   test('série quotidienne : jours sans transaction à zéro, jours chargés agrégés', async () => {
@@ -90,7 +90,7 @@ describe('statistiques', () => {
     expect(at('2026-10-10')).toBe(185_000);              // − dépenses
     expect(at('2026-10-12')).toBe(185_000);              // transfert interne : inchangé
     expect(at(TODAY)).toBe(185_000);
-    expect(at(TODAY)).toBe(await getGlobalBalance(f.db));  // cohérent avec le solde affiché
+    expect(at(TODAY)).toBe((await getGlobalBalance(f.db)).total);  // cohérent avec le solde affiché
     expect(h).toHaveLength(26);
   });
 
@@ -105,7 +105,7 @@ describe('statistiques', () => {
     await archiveAccount(f.db, f.momo.id, clock);
     const h = await getBalanceHistory(f.db, '2026-10-05', '2026-10-05');
     expect(h[0].balance).toBe(150_000);
-    expect(h[0].balance).toBe(await getGlobalBalance(f.db));
+    expect(h[0].balance).toBe((await getGlobalBalance(f.db)).total);
   });
 
   test('buildBalanceSeries (fonction pure) cumule correctement les variations', () => {

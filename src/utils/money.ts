@@ -1,4 +1,5 @@
 import { ValidationError } from './errors';
+import { getCurrency } from '../constants/currencies';
 
 /** Plafond de sécurité : reste très en dessous de Number.MAX_SAFE_INTEGER. */
 export const MAX_AMOUNT = 1_000_000_000_000;
@@ -75,4 +76,59 @@ export function formatCompact(n: number): string {
   if (abs >= 1_000_000) return `${sign}${trim(abs / 1_000_000)} M`;
   if (abs >= 1_000) return `${sign}${trim(abs / 1_000)} k`;
   return `${sign}${abs}`;
+}
+
+// ---------------------------------------------------------------------------------------------
+// Montants multi-devises : entiers de la plus petite unité de chaque devise (XOF : franc ; EUR : centime).
+// ---------------------------------------------------------------------------------------------
+/** 1250 EUR(centimes) -> « 12,50 € » ; 25000 XOF -> « 25 000 FCFA » ; 5 GBP(pence) -> « 0,05 £ ». */
+export function formatMoney(amount: number, currency: string): string {
+  const cur = getCurrency(currency);
+  return `${formatPlainAmount(amount, currency, true)}${NBSP}${cur.symbol}`;
+}
+
+export function formatSignedMoney(amount: number, currency: string): string {
+  return amount > 0 ? `+${formatMoney(amount, currency)}` : formatMoney(amount, currency);
+}
+
+/** Nombre sans symbole (« 12,50 »). `grouped` ajoute les espaces des milliers. */
+export function formatPlainAmount(amount: number, currency: string, grouped = false): string {
+  const { exponent } = getCurrency(currency);
+  const sign = amount < 0 ? '-' : '';
+  const abs = Math.abs(Math.trunc(amount));
+  const digits = String(abs).padStart(exponent + 1, '0');
+  const int = digits.slice(0, digits.length - exponent);
+  const frac = exponent > 0 ? digits.slice(-exponent) : '';
+  const intText = grouped ? int.replace(/\B(?=(\d{3})+(?!\d))/g, NBSP) : int;
+  return `${sign}${intText}${exponent > 0 ? ',' + frac : ''}`;
+}
+
+/** Libellé court de la devise (« FCFA », « € », « USD »…). */
+export function currencySymbol(currency: string): string {
+  return getCurrency(currency).symbol;
+}
+
+/**
+ * Saisie d'un montant dans une devise -> entier de la plus petite unité, ou null si invalide.
+ * Accepte « 12,5 », « 12.50 », « 1 250 » ; refuse plus de décimales que la devise n'en admet,
+ * les négatifs et le texte. Aucun flottant n'intervient.
+ */
+export function parseMoneyInput(input: string, currency: string): number | null {
+  const { exponent } = getCurrency(currency);
+  const cleaned = input.replace(/fcfa|f\s*cfa/gi, '').replace(/[\s\u00A0\u202F]/g, '');
+  const m = /^(\d+)(?:[.,](\d*))?$/.exec(cleaned);
+  if (!m) return null;
+  const frac = m[2] ?? '';
+  if (frac.length > exponent) return null;
+  const n = Number(m[1] + frac.padEnd(exponent, '0'));
+  return Number.isSafeInteger(n) ? n : null;
+}
+
+/** Comme parseMoneyInput mais accepte un signe « - » (soldes initiaux à découvert). */
+export function parseSignedMoneyInput(input: string, currency: string): number | null {
+  const t = input.trim();
+  const negative = /^[-−–]/.test(t);
+  const n = parseMoneyInput(negative ? t.slice(1) : t, currency);
+  if (n === null) return null;
+  return negative ? -n : n;
 }

@@ -21,7 +21,7 @@ export function TransactionRow({ t, onPress }: { t: TransactionDetail; onPress?:
         <Text style={styles.title} numberOfLines={1}>{title}</Text>
         <Text style={styles.sub} numberOfLines={1}>{subtitle}</Text>
       </View>
-      <Money amount={t.amount} kind={t.type} size={15} />
+      <Money amount={t.amount} kind={t.type} currency={t.currency} size={15} />
     </Pressable>
   );
 }

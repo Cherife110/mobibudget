@@ -40,15 +40,15 @@ describe('sauvegarde et restauration', () => {
     expect(file).toMatchObject({ app: 'MobiBudget', formatVersion: BACKUP_FORMAT_VERSION });
     expect(file.data.transactions).toHaveLength(3);
     const text = serializeBackup(file);
-    expect(JSON.parse(text).formatVersion).toBe(1);
+    expect(JSON.parse(text).formatVersion).toBe(2);
 
     const target = await openTestDb();
     const summary = await restoreBackup(target.db, parseBackup(text));
-    expect(summary).toEqual({ accounts: 3, categories: 14, transactions: 3, budgets: 1 });
+    expect(summary).toEqual({ accounts: 3, categories: 14, transactions: 3, budgets: 1, exchangeRates: 0 });
 
     const again = await createBackup(target.db, clock);
     expect(again.data).toEqual(file.data);                                                   // identité complète, ids inclus
-    expect(await getGlobalBalance(target.db)).toBe(await getGlobalBalance(f.db));
+    expect((await getGlobalBalance(target.db)).total).toBe((await getGlobalBalance(f.db)).total);
     expect((await getAccountsWithBalances(target.db)).map((a) => [a.name, a.balance, a.archived]))
       .toEqual((await getAccountsWithBalances(f.db)).map((a) => [a.name, a.balance, a.archived]));
     expect((await getBudgetStatuses(target.db, '2026-10'))[0]).toMatchObject({ spent: 12_500, amount: 20_000 });
@@ -70,7 +70,7 @@ describe('sauvegarde et restauration', () => {
 
   test('restauration atomique : en cas d\'erreur en cours de route, les données précédentes restent intactes', async () => {
     const before = await createBackup(f.db, clock);
-    const balanceBefore = await getGlobalBalance(f.db);
+    const balanceBefore = (await getGlobalBalance(f.db)).total;
     const poisoned: BackupFile = JSON.parse(serializeBackup(before));
     // Passe la validation structurelle d'un type, mais viole une clé étrangère à l'insertion des opérations
     poisoned.data.transactions[1].accountId = 777;
@@ -78,7 +78,7 @@ describe('sauvegarde et restauration', () => {
     const after = await createBackup(f.db, clock);
     expect(after.data).toEqual(before.data);
     expect(await count(f.db, 'transactions')).toBe(3);
-    expect(await getGlobalBalance(f.db)).toBe(balanceBefore);
+    expect((await getGlobalBalance(f.db)).total).toBe(balanceBefore);
   });
 
   test('fichiers invalides rejetés avec un message clair', async () => {
@@ -156,7 +156,7 @@ describe('persistance après redémarrage', () => {
 
       const second = await openTestDb(path);                                                  // « redémarrage » (migrate rejoué)
       expect(await getSchemaVersion(second.db)).toBe(LATEST_SCHEMA_VERSION);
-      expect(await getGlobalBalance(second.db)).toBe(7_500);
+      expect((await getGlobalBalance(second.db)).total).toBe(7_500);
       expect((await getAccountsWithBalances(second.db))[0]).toMatchObject({ name: 'Espèces', balance: 7_500 });
       expect(await count(second.db, 'transactions')).toBe(1);
       expect((await listCategories(second.db)).length).toBe(14);

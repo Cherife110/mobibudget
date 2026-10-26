@@ -12,7 +12,9 @@ import { listCategories } from '../../src/repositories/categories.repository';
 import { listTransactions, summarizeFilter, type TransactionFilter } from '../../src/services/transaction.service';
 import type { TransactionDetail, TransactionType } from '../../src/types';
 import { addDays, endOfMonth, addMonths, formatDateLongFR, monthOf, startOfMonth, todayISO } from '../../src/utils/dates';
-import { formatFCFA } from '../../src/utils/money';
+import { formatMoney } from '../../src/utils/money';
+import { RateWarning } from '../../src/components/RateWarning';
+import { useApp } from '../../src/context/AppContext';
 
 type Preset = 'all' | 'today' | '7d' | 'month' | 'lastMonth' | 'custom';
 const PAGE = 100;
@@ -21,6 +23,8 @@ type Item = { kind: 'header'; date: string; key: string } | { kind: 'tx'; t: Tra
 
 export default function History() {
   const router = useRouter();
+  const { settings } = useApp();
+  const ref = settings.referenceCurrency;
   const [search, setSearch] = useState('');
   const [preset, setPreset] = useState<Preset>('all');
   const [customFrom, setCustomFrom] = useState(startOfMonth(monthOf(todayISO())));
@@ -122,9 +126,12 @@ export default function History() {
       {data ? (
         <View style={styles.summary}>
           <Text style={styles.summaryText}>{data.summary.count} opération{data.summary.count > 1 ? 's' : ''}</Text>
-          <Text style={styles.summaryText}>Entrées <Text style={{ color: colors.income, fontWeight: '700' }}>{formatFCFA(data.summary.income)}</Text></Text>
-          <Text style={styles.summaryText}>Dépenses <Text style={{ color: colors.expense, fontWeight: '700' }}>{formatFCFA(data.summary.expense)}</Text></Text>
+          <Text style={styles.summaryText}>Entrées <Text style={{ color: colors.income, fontWeight: '700' }}>{formatMoney(data.summary.income, ref)}</Text></Text>
+          <Text style={styles.summaryText}>Dépenses <Text style={{ color: colors.expense, fontWeight: '700' }}>{formatMoney(data.summary.expense, ref)}</Text></Text>
         </View>
+      ) : null}
+      {data && data.summary.excludedCount > 0 ? (
+        <RateWarning text={`${data.summary.excludedCount} opération${data.summary.excludedCount > 1 ? 's' : ''} exclue${data.summary.excludedCount > 1 ? 's' : ''} des totaux ci-dessus : aucun taux de change applicable.`} />
       ) : null}
     </View>
   );

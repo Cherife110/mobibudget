@@ -5,7 +5,8 @@ import {
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { colors, radius, spacing } from '../theme';
-import { formatFCFA, formatSignedFCFA } from '../utils/money';
+import { formatMoney, formatSignedMoney } from '../utils/money';
+import { useApp } from '../context/AppContext';
 import type { BudgetLevel } from '../types';
 
 type IconName = React.ComponentProps<typeof Ionicons>['name'];
@@ -132,19 +133,24 @@ export function Segmented<T extends string>({
   );
 }
 
-/** Montant coloré : vert (entrée / positif), rouge (dépense / négatif), gris (transfert). */
+/**
+ * Montant coloré : vert (entrée / positif), rouge (dépense / négatif), gris (transfert).
+ * `currency` = devise du montant ; par défaut la devise de référence.
+ */
 export function Money({
-  amount, kind = 'auto', size = 16, signed = false, style,
-}: { amount: number; kind?: 'auto' | 'income' | 'expense' | 'transfer' | 'plain'; size?: number; signed?: boolean; style?: StyleProp<ViewStyle> }) {
+  amount, kind = 'auto', currency, size = 16, signed = false, style,
+}: { amount: number; kind?: 'auto' | 'income' | 'expense' | 'transfer' | 'plain'; currency?: string; size?: number; signed?: boolean; style?: StyleProp<ViewStyle> }) {
+  const { settings } = useApp();
+  const cur = currency ?? settings.referenceCurrency;
   let color = colors.text;
-  let text = formatFCFA(amount);
+  let text = formatMoney(amount, cur);
   // Un montant nul reste neutre : « 0 FCFA », jamais « +0 » ni « -0 ».
-  if (kind === 'income' && amount !== 0) { color = colors.income; text = `+${formatFCFA(amount)}`; }
-  else if (kind === 'expense' && amount !== 0) { color = colors.expense; text = `-${formatFCFA(amount)}`; }
+  if (kind === 'income' && amount !== 0) { color = colors.income; text = `+${formatMoney(amount, cur)}`; }
+  else if (kind === 'expense' && amount !== 0) { color = colors.expense; text = `-${formatMoney(amount, cur)}`; }
   else if (kind === 'transfer') { color = colors.transfer; }
   else if (kind === 'auto') {
     color = amount > 0 ? colors.income : amount < 0 ? colors.expense : colors.text;
-    text = signed ? formatSignedFCFA(amount) : formatFCFA(amount);
+    text = signed ? formatSignedMoney(amount, cur) : formatMoney(amount, cur);
   }
   return <Text style={[{ color, fontSize: size, fontWeight: '700' }, style as never]}>{text}</Text>;
 }

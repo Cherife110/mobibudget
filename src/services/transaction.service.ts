@@ -11,12 +11,11 @@ import {
   getTransactionRow,
   insertTransaction,
   queryTransactions,
-  summarizeTransactions,
   updateTransactionRow,
-  type FilterSummary,
   type NewTransaction,
   type TransactionFilter,
 } from '../repositories/transactions.repository';
+import { getReferenceCurrency, loadRateBook } from './rates.service';
 import type { Clock } from './clock';
 
 export const TRANSACTION_TYPES: TransactionType[] = ['income', 'expense', 'transfer'];
@@ -72,6 +71,15 @@ async function normalize(db: Db, input: TransactionInput, existing: Transaction 
   }
 
   const account = await requireUsableAccount(db, input.accountId, input.type === 'transfer' ? 'source' : '', input.date);
+  if (existing && existing.accountId !== account.id) {
+    // Déplacer une opération vers un compte d'une autre devise réinterpréterait son montant (12,50 € → 1 250 FCFA).
+    const previous = await getAccount(db, existing.accountId);
+    if (previous && previous.currency !== account.currency) {
+      throw new ValidationError(
+        `Le compte d'une opération ne peut pas être remplacé par un compte d'une autre devise (${previous.currency} → ${account.currency}). Supprimez l'opération et recréez-la.`,
+      );
+    }
+  }
 
   if (input.type === 'transfer') {
     if (input.categoryId !== undefined && input.categoryId !== null) {
@@ -80,6 +88,14 @@ async function normalize(db: Db, input: TransactionInput, existing: Transaction 
     const to = await requireUsableAccount(db, input.toAccountId, 'destinataire', input.date);
     if (to.id === account.id) {
       throw new ValidationError('Le compte source et le compte destinataire doivent être différents.');
+    }
+    if (to.currency !== account.currency) {
+      // Un transfert déplace un seul montant : entre deux devises il faudrait une vraie opération de change
+      // (deux montants + un taux). Tant qu'elle n'existe pas, on refuse plutôt que de créer des soldes faux.
+      throw new ValidationError(
+        `Transfert impossible entre « ${account.name} » (${account.currency}) et « ${to.name} » (${to.currency}) : ` +
+          `les opérations de change ne sont pas encore disponibles. Les transferts se font entre comptes de même devise.`,
+      );
     }
     return {
       type: 'transfer',
@@ -170,12 +186,36 @@ export function listTransactions(db: Db, filter: TransactionFilter = {}): Promis
   return queryTransactions(db, filter);
 }
 
-export function summarizeFilter(db: Db, filter: TransactionFilter = {}): Promise<FilterSummary> {
-  return summarizeTransactions(db, filter);
+export interface FilterSummary {
+  count: number;
+  /** Entrées / dépenses du filtre, converties dans la devise de référence (transferts exclus). */
+  income: number;
+  expense: number;
+  /** Opérations exclues des totaux faute de taux de change applicable. */
+  excludedCount: number;
+}
+
+export async function summarizeFilter(db: Db, filter: TransactionFilter = {}): Promise<FilterSummary> {
+  const [rows, reference, book] = await Promise.all([
+    queryTransactions(db, { ...filter, limit: 1_000_000, offset: 0 }),
+    getReferenceCurrency(db),
+    loadRateBook(db),
+  ]);
+  let income = 0;
+  let expense = 0;
+  let excludedCount = 0;
+  for (const t of rows) {
+    if (t.type === 'transfer') continue;
+    const converted = book.convert(t.amount, t.currency, reference, t.date);
+    if (converted === null) excludedCount++;
+    else if (t.type === 'income') income += converted;
+    else expense += converted;
+  }
+  return { count: rows.length, income, expense, excludedCount };
 }
 
 export function getTransaction(db: Db, id: number): Promise<TransactionDetail | null> {
   return getTransactionDetail(db, id);
 }
 
-export type { TransactionFilter, FilterSummary };
+export type { TransactionFilter };

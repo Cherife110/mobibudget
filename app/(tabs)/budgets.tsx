@@ -10,13 +10,16 @@ import { copyBudgets, deleteBudget, getBudgetStatuses, setBudget } from '../../s
 import type { BudgetStatus, Category } from '../../src/types';
 import { addMonths, formatMonthFR, monthOf, todayISO } from '../../src/utils/dates';
 import { errorMessage } from '../../src/utils/errors';
-import { formatFCFA, formatNumber, parseAmount } from '../../src/utils/money';
+import { currencySymbol, formatMoney, formatPlainAmount, parseMoneyInput } from '../../src/utils/money';
+import { getCurrency } from '../../src/constants/currencies';
+import { RateWarning } from '../../src/components/RateWarning';
 import { confirmAsync, notify, showError } from '../../src/utils/ui';
 
-interface Editing { budget?: BudgetStatus; categoryId: number | null; digits: string }
+interface Editing { budget?: BudgetStatus; categoryId: number | null; text: string }
 
 export default function Budgets() {
-  const { db, refresh } = useApp();
+  const { db, refresh, settings } = useApp();
+  const ref = settings.referenceCurrency;
   const currentMonth = monthOf(todayISO());
   const [month, setMonth] = useState(currentMonth);
   const [editing, setEditing] = useState<Editing | null>(null);
@@ -33,14 +36,14 @@ export default function Budgets() {
 
   const open = (b?: BudgetStatus) => {
     setFormError(null);
-    setEditing({ budget: b, categoryId: b?.categoryId ?? null, digits: b ? String(b.amount) : '' });
+    setEditing({ budget: b, categoryId: b?.categoryId ?? null, text: b ? formatPlainAmount(b.amount, ref) : '' });
   };
 
   const save = async () => {
     if (!editing) return;
-    const amount = parseAmount(editing.digits);
+    const amount = parseMoneyInput(editing.text, ref);
     if (editing.categoryId === null) return setFormError('Choisissez une catégorie.');
-    if (amount === null || amount === 0) return setFormError('Saisissez un plafond entier supérieur à 0, en FCFA.');
+    if (amount === null || amount === 0) return setFormError(`Saisissez un plafond supérieur à 0, en ${currencySymbol(ref)}.`);
     try {
       await setBudget(db, { categoryId: editing.categoryId, month, amount });
       await refresh();
@@ -101,15 +104,16 @@ export default function Budgets() {
             </View>
             <ProgressBar percent={b.percent} level={b.level} />
             <View style={styles.between}>
-              <Text style={styles.small}>Dépensé : <Text style={{ color: colors.text, fontWeight: '700' }}>{formatFCFA(b.spent)}</Text></Text>
-              <Text style={styles.small}>Plafond : <Text style={{ color: colors.text, fontWeight: '700' }}>{formatFCFA(b.amount)}</Text></Text>
+              <Text style={styles.small}>Dépensé : <Text style={{ color: colors.text, fontWeight: '700' }}>{formatMoney(b.spent, ref)}</Text></Text>
+              <Text style={styles.small}>Plafond : <Text style={{ color: colors.text, fontWeight: '700' }}>{formatMoney(b.amount, ref)}</Text></Text>
             </View>
             <View style={styles.between}>
               <Text style={styles.small}>{b.remaining >= 0 ? 'Restant' : 'Dépassement'}</Text>
-              <Money amount={Math.abs(b.remaining)} kind={b.remaining >= 0 ? 'income' : 'expense'} size={14} style={{}} />
+              <Money amount={Math.abs(b.remaining)} kind={b.remaining >= 0 ? 'income' : 'expense'} size={14} />
             </View>
+            {b.excludedCount > 0 ? <RateWarning text={`${b.excludedCount} dépense${b.excludedCount > 1 ? 's' : ''} de cette catégorie ${b.excludedCount > 1 ? 'sont exclues' : 'est exclue'} du « dépensé » : aucun taux de change applicable.`} /> : null}
             {b.level === 'warning' ? <Banner tone="warning" text={`Attention : ${b.percent} % du plafond est utilisé (seuil d'alerte à 80 %).`} /> : null}
-            {b.level === 'exceeded' ? <Banner tone="error" text={b.remaining === 0 ? 'Plafond atteint.' : `Plafond dépassé de ${formatFCFA(-b.remaining)}.`} /> : null}
+            {b.level === 'exceeded' ? <Banner tone="error" text={b.remaining === 0 ? 'Plafond atteint.' : `Plafond dépassé de ${formatMoney(-b.remaining, ref)}.`} /> : null}
           </Card>
         </Pressable>
       ))}
@@ -130,11 +134,11 @@ export default function Budgets() {
             </ChipRow>
             <Field
               label="Plafond mensuel"
-              value={editing?.digits ? formatNumber(Number(editing.digits)) : ''}
-              onChangeText={(t) => setEditing((e) => e && { ...e, digits: t.replace(/\D/g, '').slice(0, 13) })}
-              keyboardType="number-pad"
+              value={editing?.text ?? ''}
+              onChangeText={(t) => setEditing((e) => e && { ...e, text: getCurrency(ref).exponent === 0 ? t.replace(/\D/g, '').slice(0, 13) : t.replace(/\./g, ',').replace(/[^\d,]/g, '').slice(0, 16) })}
+              keyboardType={getCurrency(ref).exponent === 0 ? 'number-pad' : 'decimal-pad'}
               placeholder="0"
-              suffix="FCFA"
+              suffix={currencySymbol(ref)}
             />
             <Button label="Enregistrer" icon="checkmark" onPress={save} />
             {editing?.budget ? <Button label="Supprimer ce budget" variant="danger" icon="trash-outline" onPress={remove} /> : null}

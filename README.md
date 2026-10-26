@@ -11,7 +11,7 @@ L'application ne demande **aucune permission Android** (y compris `INTERNET`, vo
 ```bash
 npm install
 npm run typecheck      # TypeScript strict
-npm test               # 76 tests sur SQLite réel (règles métier)
+npm test               # 109 tests sur SQLite réel (règles métier)
 npm start              # serveur de développement (Expo Go sur le téléphone, même Wi‑Fi)
 npm run web            # version navigateur, pour tester sur le PC (voir ci-dessous)
 ```
@@ -80,6 +80,18 @@ La dépense initiale reste une dépense ; ne pas la déduire pour ne pas compter
 **Statistiques** : les entrées/dépenses incluent toutes les opérations (comptes archivés compris) ; le graphique d'évolution
 et le solde global portent sur les comptes actifs, pour que le dernier point du graphique égale le solde affiché.
 
+## Devises et taux de change
+
+- Chaque compte a sa **devise** (code ISO 4217 ; catalogue d'une soixantaine de devises). Les anciens comptes passent en XOF sans que leurs montants changent.
+- Les montants sont des **entiers de la plus petite unité** de la devise (XOF : franc ; EUR/USD : centime ; KWD : millième). Aucun flottant.
+- La devise d'un compte ne peut plus changer dès qu'il a des opérations ; une opération ne peut pas être déplacée vers un compte d'une autre devise.
+- **Taux saisis à la main** (Paramètres › Taux de change) : « 1 EUR = 655,957 XOF » avec une date d'effet. Stockés en entiers (8 décimales), conversion en BigInt, arrondi au plus proche (moitié vers l'extérieur). Un taux peut servir dans les deux sens.
+- Les totaux, budgets et statistiques sont en **devise de référence (XOF)**. Chaque opération est convertie **individuellement au taux en vigueur à sa date** (dernier taux dont la date d'effet est ≤ la date de l'opération) ; les montants d'origine ne sont jamais modifiés ni réévalués.
+- **Taux manquant** : l'opération (ou le solde) est **exclue** du total et un avertissement l'indique, avec un lien vers l'écran des taux. Aucune triangulation automatique (EUR→USD passe par un taux EUR↔USD saisi).
+- Le **solde global** convertit le solde de chaque devise au taux du jour. L'**évolution du solde** convertit chaque jour au taux de CE jour : une variation de taux revalorise donc le solde (le dernier point égale toujours le solde global).
+- **Transferts entre devises différentes : refusés** (une vraie opération de change, avec deux montants, n'existe pas encore).
+- Sauvegarde **v2** : devise par compte, taux et devise de référence. Les sauvegardes v1 (FCFA) restent restaurables.
+
 ## Sauvegarde / restauration
 
 - Export JSON versionné (`formatVersion: 1`) : comptes, catégories, opérations, budgets, paramètres.
@@ -109,7 +121,7 @@ Clés étrangères activées (`PRAGMA foreign_keys = ON`), index sur dates / com
 
 - Non testée sur un téléphone ou un émulateur Android (voir le compte rendu de vérification) : seul le code métier est couvert par des tests automatisés ; l'interface a été vérifiée par typage strict et compilation du bundle.
 - Sauvegarde non chiffrée.
-- Pas de saisie récurrente, de pièces jointes, de multi-devises, de mode sombre (mode clair forcé).
+- Pas de saisie récurrente, de pièces jointes, d'opération de change entre comptes de devises différentes, de changement de devise de référence, de mode sombre (mode clair forcé).
 - Mono-appareil : pas de synchronisation (changer de téléphone = export puis restauration).
 - Outils de développement : TypeScript 6 et Jest 30 (versions attendues par Expo SDK 58). Ne lance pas `npm audit fix --force` : il ferait reculer Expo de plusieurs années.
 - Les alertes `npm audit` concernent `@expo/cli` (outil de développement, non embarqué dans l'APK).

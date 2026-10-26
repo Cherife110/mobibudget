@@ -15,6 +15,7 @@ export interface TransactionRow {
 }
 
 interface DetailRow extends TransactionRow {
+  currency: string;
   account_name: string;
   to_account_name: string | null;
   category_name: string | null;
@@ -38,6 +39,7 @@ export function mapTransaction(r: TransactionRow): Transaction {
 function mapDetail(r: DetailRow): TransactionDetail {
   return {
     ...mapTransaction(r),
+    currency: r.currency,
     accountName: r.account_name,
     toAccountName: r.to_account_name,
     categoryName: r.category_name,
@@ -142,7 +144,7 @@ export async function queryTransactions(db: Db, f: TransactionFilter = {}): Prom
   const limit = f.limit ?? 500;
   const offset = f.offset ?? 0;
   const rows = await db.all<DetailRow>(
-    `SELECT t.*, a.name AS account_name, a2.name AS to_account_name, c.name AS category_name
+    `SELECT t.*, a.currency AS currency, a.name AS account_name, a2.name AS to_account_name, c.name AS category_name
      ${FROM_JOINS} ${sql}
      ORDER BY t.date DESC, t.id DESC LIMIT ? OFFSET ?`,
     [...params, limit, offset],
@@ -150,28 +152,9 @@ export async function queryTransactions(db: Db, f: TransactionFilter = {}): Prom
   return rows.map(mapDetail);
 }
 
-export interface FilterSummary {
-  count: number;
-  income: number;
-  expense: number;
-}
-
-/** Totaux du filtre : les transferts sont comptés dans `count` mais jamais dans entrées/dépenses. */
-export async function summarizeTransactions(db: Db, f: TransactionFilter = {}): Promise<FilterSummary> {
-  const { sql, params } = buildWhere(f);
-  const row = await db.first<{ n: number; income: number | null; expense: number | null }>(
-    `SELECT COUNT(*) AS n,
-       SUM(CASE WHEN t.type = 'income' THEN t.amount ELSE 0 END) AS income,
-       SUM(CASE WHEN t.type = 'expense' THEN t.amount ELSE 0 END) AS expense
-     ${FROM_JOINS} ${sql}`,
-    params,
-  );
-  return { count: row?.n ?? 0, income: row?.income ?? 0, expense: row?.expense ?? 0 };
-}
-
 export async function getTransactionDetail(db: Db, id: number): Promise<TransactionDetail | null> {
   const row = await db.first<DetailRow>(
-    `SELECT t.*, a.name AS account_name, a2.name AS to_account_name, c.name AS category_name
+    `SELECT t.*, a.currency AS currency, a.name AS account_name, a2.name AS to_account_name, c.name AS category_name
      ${FROM_JOINS} WHERE t.id = ?`,
     [id],
   );

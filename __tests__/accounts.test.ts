@@ -19,12 +19,12 @@ describe('comptes', () => {
     expect(await getAccountBalance(f.db, f.cash.id)).toBe(50_000);
     const all = await getAccountsWithBalances(f.db);
     expect(all.map((a) => [a.name, a.balance])).toEqual([['Espèces', 50_000], ['Mobile Money', 20_000], ['Banque', 100_000]]);
-    expect(await getGlobalBalance(f.db)).toBe(170_000);
+    expect((await getGlobalBalance(f.db)).total).toBe(170_000);
   });
 
   test('un compte peut démarrer à découvert (solde négatif) et le solde global en tient compte', async () => {
     await createAccount(f.db, { name: 'Crédit', type: 'other', initialBalance: -30_000, referenceDate: '2026-10-01' }, clock);
-    expect(await getGlobalBalance(f.db)).toBe(140_000);
+    expect((await getGlobalBalance(f.db)).total).toBe(140_000);
   });
 
   test('validation : nom, type, solde, date de référence, doublon', async () => {
@@ -55,12 +55,12 @@ describe('comptes', () => {
     await archiveAccount(f.db, f.momo.id, clock);
     const all = await getAccountsWithBalances(f.db);
     expect(all.find((a) => a.id === f.momo.id)).toMatchObject({ archived: true, balance: 20_000 });
-    expect(await getGlobalBalance(f.db)).toBe(150_000);
+    expect((await getGlobalBalance(f.db)).total).toBe(150_000);
     await expect(
       createTransaction(f.db, { type: 'income', amount: 500, accountId: f.momo.id, categoryId: f.cat('Vente'), date: '2026-10-10' }, clock),
     ).rejects.toThrow(/archivé/);
     await unarchiveAccount(f.db, f.momo.id, clock);
-    expect(await getGlobalBalance(f.db)).toBe(170_000);
+    expect((await getGlobalBalance(f.db)).total).toBe(170_000);
   });
 
   test('les clés étrangères sont actives : un compte utilisé ne peut pas être supprimé', async () => {
@@ -77,11 +77,11 @@ describe('première utilisation', () => {
     expect((await loadAppSettings(t.db)).onboardingCompleted).toBe(false);
     await completeOnboarding(t.db, { account: { name: 'Espèces', type: 'cash', initialBalance: 15_000, referenceDate: '2026-10-20' } }, clock);
     const settings = await loadAppSettings(t.db);
-    expect(settings).toMatchObject({ onboardingCompleted: true, currency: 'FCFA' });
+    expect(settings).toMatchObject({ onboardingCompleted: true, referenceCurrency: 'XOF' });
     const cats = await listCategories(t.db);
     expect(cats.filter((c) => c.kind === 'income')).toHaveLength(5);
     expect(cats.filter((c) => c.kind === 'expense')).toHaveLength(9);
-    expect(await getGlobalBalance(t.db)).toBe(15_000);
+    expect((await getGlobalBalance(t.db)).total).toBe(15_000);
     await expect(
       completeOnboarding(t.db, { account: { name: 'Autre', type: 'cash', initialBalance: 0, referenceDate: '2026-10-20' } }, clock),
     ).rejects.toThrow(/déjà terminée/);

@@ -5,6 +5,7 @@ export interface AccountRow {
   id: number;
   name: string;
   type: AccountType;
+  currency: string;
   initial_balance: number;
   reference_date: string;
   archived: number;
@@ -17,6 +18,7 @@ export function mapAccount(r: AccountRow): Account {
     id: r.id,
     name: r.name,
     type: r.type,
+    currency: r.currency,
     initialBalance: r.initial_balance,
     referenceDate: r.reference_date,
     archived: r.archived === 1,
@@ -39,13 +41,13 @@ export async function getAccount(db: Db, id: number): Promise<Account | null> {
 
 export async function insertAccount(
   db: Db,
-  a: { name: string; type: AccountType; initialBalance: number; referenceDate: string },
+  a: { name: string; type: AccountType; currency: string; initialBalance: number; referenceDate: string },
   now: string,
 ): Promise<number> {
   const r = await db.run(
-    `INSERT INTO accounts (name, type, initial_balance, reference_date, archived, created_at, updated_at)
-     VALUES (?, ?, ?, ?, 0, ?, ?)`,
-    [a.name, a.type, a.initialBalance, a.referenceDate, now, now],
+    `INSERT INTO accounts (name, type, currency, initial_balance, reference_date, archived, created_at, updated_at)
+     VALUES (?, ?, ?, ?, ?, 0, ?, ?)`,
+    [a.name, a.type, a.currency, a.initialBalance, a.referenceDate, now, now],
   );
   return r.lastInsertRowId;
 }
@@ -53,12 +55,12 @@ export async function insertAccount(
 export async function updateAccountRow(
   db: Db,
   id: number,
-  a: { name: string; type: AccountType; initialBalance: number; referenceDate: string },
+  a: { name: string; type: AccountType; currency: string; initialBalance: number; referenceDate: string },
   now: string,
 ): Promise<void> {
   await db.run(
-    `UPDATE accounts SET name = ?, type = ?, initial_balance = ?, reference_date = ?, updated_at = ? WHERE id = ?`,
-    [a.name, a.type, a.initialBalance, a.referenceDate, now, id],
+    `UPDATE accounts SET name = ?, type = ?, currency = ?, initial_balance = ?, reference_date = ?, updated_at = ? WHERE id = ?`,
+    [a.name, a.type, a.currency, a.initialBalance, a.referenceDate, now, id],
   );
 }
 

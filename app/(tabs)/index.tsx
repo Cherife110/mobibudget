@@ -3,45 +3,62 @@ import { StyleSheet, Text, View } from 'react-native';
 import { useRouter } from 'expo-router';
 import { Button, Card, EmptyState, Money, ProgressBar, RowDivider, Screen, SectionTitle } from '../../src/components/ui';
 import { TransactionRow } from '../../src/components/TransactionRow';
+import { RateWarning, exclusionText } from '../../src/components/RateWarning';
 import { useQuery } from '../../src/hooks/useQuery';
 import { colors } from '../../src/theme';
-import { getAccountsWithBalances } from '../../src/services/balance.service';
+import { getAccountsWithBalances, getGlobalBalance } from '../../src/services/balance.service';
+import { getExclusions } from '../../src/services/converted.service';
 import { getTotals } from '../../src/services/statistics.service';
 import { getBudgetStatuses } from '../../src/services/budget.service';
 import { listTransactions } from '../../src/services/transaction.service';
 import { formatDateLongFR, monthOf, todayISO } from '../../src/utils/dates';
-import { formatFCFA, formatSignedFCFA } from '../../src/utils/money';
+import { formatMoney, formatSignedMoney } from '../../src/utils/money';
 
 export default function Dashboard() {
   const router = useRouter();
   const { data, error } = useQuery(async (db) => {
     const today = todayISO();
-    const [accounts, day, recent, budgets] = await Promise.all([
+    const [accounts, global, day, dayExcluded, recent, budgets] = await Promise.all([
       getAccountsWithBalances(db, false),
+      getGlobalBalance(db, today),
       getTotals(db, today, today),
+      getExclusions(db, today, today),
       listTransactions(db, { limit: 5 }),
       getBudgetStatuses(db, monthOf(today)),
     ]);
-    return { today, accounts, day, recent, budgets };
+    return { today, accounts, global, day, dayExcluded, recent, budgets };
   });
 
   if (error) return <Screen><EmptyState icon="alert-circle-outline" title="Chargement impossible" text={error} /></Screen>;
   if (!data) return <Screen><Text style={styles.muted}>Chargement…</Text></Screen>;
 
-  const total = data.accounts.reduce((s, a) => s + a.balance, 0);
+  const { global } = data;
   const net = data.day.net;
 
   return (
     <Screen>
       <Card style={{ gap: 4 }}>
         <Text style={styles.cardLabel}>Solde total</Text>
-        <Money amount={total} size={34} />
+        <Money amount={global.total} size={34} />
         <Text style={styles.muted}>
           {data.accounts.length === 0 ? 'Aucun compte actif' : `${data.accounts.length} compte${data.accounts.length > 1 ? 's' : ''} actif${data.accounts.length > 1 ? 's' : ''}`}
+          {global.byCurrency.length > 1 ? ` · converti en ${global.currency}` : ''}
         </Text>
+        {global.byCurrency.length > 1
+          ? global.byCurrency.map((b) => (
+              <Text key={b.currency} style={styles.muted}>
+                {formatMoney(b.amount, b.currency)}
+                {b.currency !== global.currency ? (b.converted === null ? ' · taux manquant' : ` ≈ ${formatMoney(b.converted, global.currency)}`) : ''}
+              </Text>
+            ))
+          : null}
       </Card>
+      {global.excluded.length > 0 ? (
+        <RateWarning text={`Solde en ${global.excluded.map((e) => e.currency).join(', ')} non inclus dans le total : aucun taux de change applicable.`} />
+      ) : null}
 
       <Text style={styles.date}>Aujourd'hui · {formatDateLongFR(data.today)}</Text>
+      {data.dayExcluded.count > 0 ? <RateWarning text={exclusionText(data.dayExcluded.count, data.dayExcluded.currencies)} /> : null}
       <View style={styles.row}>
         <Card style={styles.half}>
           <Text style={styles.cardLabel}>Entrées du jour</Text>
@@ -54,7 +71,7 @@ export default function Dashboard() {
       </View>
       <Card style={styles.netRow}>
         <Text style={styles.cardLabel}>Variation nette du jour</Text>
-        <Text style={{ fontWeight: '700', fontSize: 16, color: net > 0 ? colors.income : net < 0 ? colors.expense : colors.text }}>{formatSignedFCFA(net)}</Text>
+        <Text style={{ fontWeight: '700', fontSize: 16, color: net > 0 ? colors.income : net < 0 ? colors.expense : colors.text }}>{formatSignedMoney(net, global.currency)}</Text>
       </Card>
 
       <View style={styles.row}>
@@ -72,8 +89,8 @@ export default function Dashboard() {
             <View key={a.id}>
               {i > 0 && <RowDivider />}
               <View style={styles.accountRow}>
-                <Text style={styles.accountName}>{a.name}</Text>
-                <Money amount={a.balance} size={15} />
+                <Text style={styles.accountName}>{a.name} <Text style={styles.muted}>· {a.currency}</Text></Text>
+                <Money amount={a.balance} currency={a.currency} size={15} />
               </View>
             </View>
           ))
@@ -90,7 +107,7 @@ export default function Dashboard() {
               <View style={styles.accountRow}>
                 <Text style={styles.accountName}>{b.categoryName}</Text>
                 <Text style={[styles.muted, b.level !== 'ok' && { color: b.level === 'exceeded' ? colors.expense : colors.warning, fontWeight: '700' }]}>
-                  {b.percent} % · {formatFCFA(b.spent)} / {formatFCFA(b.amount)}
+                  {b.percent} % · {formatMoney(b.spent, global.currency)} / {formatMoney(b.amount, global.currency)}
                 </Text>
               </View>
               <ProgressBar percent={b.percent} level={b.level} />

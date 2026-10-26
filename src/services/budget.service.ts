@@ -4,6 +4,7 @@ import { ValidationError } from '../utils/errors';
 import { assertValidAmount } from '../utils/money';
 import { endOfMonth, isValidMonth, nowISO, startOfMonth } from '../utils/dates';
 import { getCategory } from '../repositories/categories.repository';
+import { loadConvertedRows } from './converted.service';
 import {
   deleteBudgetRow,
   listBudgetsForMonth,
@@ -44,14 +45,13 @@ export async function deleteBudget(db: Db, id: number): Promise<void> {
 }
 
 /**
- * Budgets d'un mois avec le total dépensé, calculé à partir des transactions.
- * Les transferts ne comptent jamais (seules les dépenses sont sommées).
+ * Budgets d'un mois avec le total dépensé, calculé à partir des transactions et exprimé dans la devise de
+ * référence (les plafonds sont dans cette devise). Les transferts ne comptent jamais ; une dépense sans taux
+ * de change applicable est exclue du « dépensé » et comptée dans `excludedCount`.
  */
 export async function getBudgetStatuses(db: Db, month: string): Promise<BudgetStatus[]> {
   if (!isValidMonth(month)) throw new ValidationError('Le mois est invalide.');
-  const from = startOfMonth(month);
-  const to = endOfMonth(month);
-  const rows = await db.all<{
+  const budgets = await db.all<{
     id: number;
     category_id: number;
     month: string;
@@ -59,28 +59,37 @@ export async function getBudgetStatuses(db: Db, month: string): Promise<BudgetSt
     created_at: string;
     updated_at: string;
     category_name: string;
-    spent: number;
   }>(
-    `SELECT b.*, c.name AS category_name,
-       COALESCE((SELECT SUM(t.amount) FROM transactions t
-                 WHERE t.type = 'expense' AND t.category_id = b.category_id AND t.date >= ? AND t.date <= ?), 0) AS spent
-     FROM budgets b JOIN categories c ON c.id = b.category_id
-     WHERE b.month = ?`,
-    [from, to, month],
+    `SELECT b.*, c.name AS category_name FROM budgets b JOIN categories c ON c.id = b.category_id WHERE b.month = ?`,
+    [month],
   );
-  const statuses = rows.map<BudgetStatus>((r) => ({
-    id: r.id,
-    categoryId: r.category_id,
-    month: r.month,
-    amount: r.amount,
-    createdAt: r.created_at,
-    updatedAt: r.updated_at,
-    categoryName: r.category_name,
-    spent: r.spent,
-    remaining: r.amount - r.spent,
-    percent: Math.round((r.spent * 100) / r.amount),
-    level: computeBudgetLevel(r.spent, r.amount),
-  }));
+  if (budgets.length === 0) return [];
+  const { rows } = await loadConvertedRows(db, startOfMonth(month), endOfMonth(month));
+  const spentBy = new Map<number, { spent: number; excluded: number }>();
+  for (const r of rows) {
+    if (r.type !== 'expense') continue;
+    const e = spentBy.get(r.categoryId) ?? { spent: 0, excluded: 0 };
+    if (r.converted === null) e.excluded++;
+    else e.spent += r.converted;
+    spentBy.set(r.categoryId, e);
+  }
+  const statuses = budgets.map<BudgetStatus>((r) => {
+    const { spent, excluded } = spentBy.get(r.category_id) ?? { spent: 0, excluded: 0 };
+    return {
+      id: r.id,
+      categoryId: r.category_id,
+      month: r.month,
+      amount: r.amount,
+      createdAt: r.created_at,
+      updatedAt: r.updated_at,
+      categoryName: r.category_name,
+      spent,
+      remaining: r.amount - spent,
+      percent: Math.round((spent * 100) / r.amount),
+      level: computeBudgetLevel(spent, r.amount),
+      excludedCount: excluded,
+    };
+  });
   // Les budgets à surveiller en premier.
   return statuses.sort((a, b) => b.percent - a.percent || a.categoryName.localeCompare(b.categoryName, 'fr'));
 }

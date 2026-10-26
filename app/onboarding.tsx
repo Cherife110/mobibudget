@@ -13,7 +13,9 @@ import { ACCOUNT_TYPES } from '../src/services/account.service';
 import { ACCOUNT_TYPE_LABELS, type AccountType } from '../src/types';
 import { todayISO } from '../src/utils/dates';
 import { errorMessage } from '../src/utils/errors';
-import { parseSignedAmount } from '../src/utils/money';
+import { currencySymbol, parseSignedMoneyInput } from '../src/utils/money';
+import { CurrencyPicker } from '../src/components/CurrencyPicker';
+import { getCurrency } from '../src/constants/currencies';
 
 export default function Onboarding() {
   const router = useRouter();
@@ -21,6 +23,7 @@ export default function Onboarding() {
   const [step, setStep] = useState(0);
   const [name, setName] = useState('Espèces');
   const [type, setType] = useState<AccountType>('cash');
+  const [currency, setCurrency] = useState('XOF');
   const [balanceText, setBalanceText] = useState('');
   const [refDate, setRefDate] = useState(todayISO());
   const [income, setIncome] = useState<string[]>(DEFAULT_INCOME_CATEGORIES);
@@ -33,8 +36,8 @@ export default function Onboarding() {
 
   const next = () => {
     setError(null);
-    if (parseSignedAmount(balanceText === '' ? '0' : balanceText) === null) {
-      return setError('Le solde initial doit être un nombre entier de FCFA (négatif autorisé).');
+    if (parseSignedMoneyInput(balanceText === '' ? '0' : balanceText, currency) === null) {
+      return setError('Le solde initial n\'est pas valide (négatif autorisé ; décimales seulement pour les devises qui en ont).');
     }
     if (name.trim().length === 0) return setError('Donnez un nom à votre premier compte.');
     setStep(2);
@@ -45,7 +48,7 @@ export default function Onboarding() {
     setSaving(true);
     try {
       await completeOnboarding(db, {
-        account: { name, type, initialBalance: parseSignedAmount(balanceText === '' ? '0' : balanceText) ?? 0, referenceDate: refDate },
+        account: { name, type, currency, initialBalance: parseSignedMoneyInput(balanceText === '' ? '0' : balanceText, currency) ?? 0, referenceDate: refDate },
         incomeCategories: income,
         expenseCategories: expense,
       });
@@ -81,9 +84,9 @@ export default function Onboarding() {
         <>
           <Text style={styles.title}>Votre premier compte</Text>
           <Card style={{ gap: 4 }}>
-            <Text style={styles.label}>Devise</Text>
+            <Text style={styles.label}>Devise de référence</Text>
             <Text style={styles.currency}>Franc CFA (FCFA)</Text>
-            <Text style={styles.hint}>Les montants s'affichent sous la forme « 25 000 FCFA ».</Text>
+            <Text style={styles.hint}>Les totaux, budgets et statistiques sont exprimés en FCFA. Vos comptes peuvent avoir une autre devise (EUR, USD…) : vous saisirez alors vos taux de change à la main.</Text>
           </Card>
           {error ? <Banner tone="error" text={error} /> : null}
           <Field label="Nom du compte" value={name} onChangeText={setName} maxLength={40} />
@@ -95,13 +98,14 @@ export default function Onboarding() {
               ))}
             </ChipRow>
           </View>
+          <CurrencyPicker label="Devise de ce compte" value={currency} onChange={setCurrency} />
           <Field
             label="Solde actuel de ce compte"
             value={balanceText}
-            onChangeText={(t) => setBalanceText(t.replace(/[^\d\s-]/g, ''))}
+            onChangeText={(t) => setBalanceText(t.replace(/[^\d\s,.\-]/g, ''))}
             keyboardType="numbers-and-punctuation"
-            placeholder="0"
-            suffix="FCFA"
+            placeholder={getCurrency(currency).exponent === 0 ? '0' : '0,00'}
+            suffix={currencySymbol(currency)}
             hint="Le montant que vous avez dans ce compte à la date ci-dessous."
           />
           <DateField label="Date correspondant à ce solde" value={refDate} onChange={setRefDate} />

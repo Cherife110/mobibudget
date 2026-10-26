@@ -27,6 +27,7 @@ export default function RootLayout() {
           <Stack.Screen name="accounts/index" options={{ title: 'Comptes' }} />
           <Stack.Screen name="accounts/[id]" options={{ title: 'Compte' }} />
           <Stack.Screen name="categories" options={{ title: 'Catégories' }} />
+          <Stack.Screen name="exchange-rates" options={{ title: 'Taux de change' }} />
         </Stack>
       </AppProvider>
     </SafeAreaProvider>

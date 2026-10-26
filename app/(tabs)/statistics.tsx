@@ -1,17 +1,20 @@
 import React, { useMemo, useState } from 'react';
 import { Pressable, StyleSheet, Text, View } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
+import { RateWarning, exclusionText } from '../../src/components/RateWarning';
+import { useApp } from '../../src/context/AppContext';
 import { Card, EmptyState, Money, RowDivider, Screen, Segmented, SectionTitle } from '../../src/components/ui';
 import { BarChart, DonutChart, LineChart } from '../../src/components/charts';
 import { useQuery } from '../../src/hooks/useQuery';
 import { colors } from '../../src/theme';
-import { getBalanceHistory } from '../../src/services/balance.service';
+import { getBalanceHistoryDetailed } from '../../src/services/balance.service';
+import { getExclusions } from '../../src/services/converted.service';
 import {
   chartRange, getCategoryBreakdown, getDailySeries, getMonthlyTotals, getPeriodComparison, getWeeklyTotals,
   periodRange, shiftAnchor, type Granularity,
 } from '../../src/services/statistics.service';
 import { formatDateFR, formatDateLongFR, formatDayMonthShort, formatMonthFR, monthOf, todayISO } from '../../src/utils/dates';
-import { formatFCFA } from '../../src/utils/money';
+import { formatMoney } from '../../src/utils/money';
 
 function periodLabel(g: Granularity, anchor: string): string {
   const r = periodRange(g, anchor);
@@ -27,6 +30,8 @@ function changeText(pct: number | null, label: string): string {
 }
 
 export default function Statistics() {
+  const { settings } = useApp();
+  const ref = settings.referenceCurrency;
   const [g, setG] = useState<Granularity>('month');
   const [anchor, setAnchor] = useState(todayISO());
   const today = todayISO();
@@ -35,15 +40,17 @@ export default function Statistics() {
 
   const { data, error } = useQuery(async (db) => {
     const chart = chartRange(g, anchor);
-    const [comparison, daily, breakdown, history, weeks, months] = await Promise.all([
+    const wide = { from: range.from < chart.from ? range.from : chart.from, to: range.to > chart.to ? range.to : chart.to };
+    const [comparison, daily, breakdown, history, exclusions, weeks, months] = await Promise.all([
       getPeriodComparison(db, g, anchor),
       getDailySeries(db, chart.from, chart.to),
       getCategoryBreakdown(db, range.from, range.to),
-      getBalanceHistory(db, chart.from, chart.to),
+      getBalanceHistoryDetailed(db, chart.from, chart.to),
+      getExclusions(db, wide.from, wide.to),
       g === 'month' ? getWeeklyTotals(db, monthOf(anchor)) : Promise.resolve([]),
       getMonthlyTotals(db, monthOf(anchor), 6),
     ]);
-    return { comparison, daily, breakdown, history, weeks, months };
+    return { comparison, daily, breakdown, history, exclusions, weeks, months };
   }, [g, anchor]);
 
   const cur = data?.comparison.current;
@@ -68,6 +75,10 @@ export default function Statistics() {
 
       {error ? <EmptyState icon="alert-circle-outline" title="Chargement impossible" text={error} /> : null}
 
+      {data && data.exclusions.count > 0 ? <RateWarning text={exclusionText(data.exclusions.count, data.exclusions.currencies)} /> : null}
+      {data && data.history.missingCurrencies.length > 0 ? (
+        <RateWarning text={`Le solde en ${data.history.missingCurrencies.join(', ')} n'est pas inclus dans l'évolution certains jours : aucun taux de change applicable.`} />
+      ) : null}
       {cur ? (
         <>
           <View style={styles.row}>
@@ -88,24 +99,24 @@ export default function Statistics() {
             <RowDivider />
             <Text style={styles.note}>{changeText(data!.comparison.expenseChangePercent, 'Dépenses')}</Text>
             <Text style={styles.note}>{changeText(data!.comparison.incomeChangePercent, 'Entrées')}</Text>
-            <Text style={styles.note}>Comparé à {prevLabel} : {formatFCFA(data!.comparison.previous.expense)} de dépenses, {formatFCFA(data!.comparison.previous.income)} d'entrées.</Text>
-            <Text style={styles.note}>Les transferts entre comptes ne sont pas comptés.</Text>
+            <Text style={styles.note}>Comparé à {prevLabel} : {formatMoney(data!.comparison.previous.expense, ref)} de dépenses, {formatMoney(data!.comparison.previous.income, ref)} d'entrées.</Text>
+            <Text style={styles.note}>Les transferts entre comptes ne sont pas comptés. Montants exprimés en {ref} (chaque opération est convertie au taux de sa date).</Text>
           </Card>
 
           <SectionTitle title={g === 'day' ? 'Entrées et dépenses · 7 derniers jours' : 'Entrées et dépenses'} />
-          <Card><BarChart data={data!.daily.map((d) => ({ label: formatDayMonthShort(d.date), income: d.income, expense: d.expense }))} /></Card>
+          <Card><BarChart currency={ref} data={data!.daily.map((d) => ({ label: formatDayMonthShort(d.date), income: d.income, expense: d.expense }))} /></Card>
 
           <SectionTitle title="Répartition des dépenses" />
           <Card>
             {data!.breakdown.length === 0 ? (
               <EmptyState icon="pie-chart-outline" title="Aucune dépense" text="Rien à répartir sur cette période." />
             ) : (
-              <DonutChart slices={data!.breakdown} />
+              <DonutChart slices={data!.breakdown} currency={ref} />
             )}
           </Card>
 
           <SectionTitle title="Évolution du solde total" />
-          <Card><LineChart points={data!.history} /></Card>
+          <Card><LineChart points={data!.history.points} currency={ref} /></Card>
 
           {g === 'month' ? (
             <>

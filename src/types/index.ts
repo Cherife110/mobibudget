@@ -6,7 +6,9 @@ export interface Account {
   id: number;
   name: string;
   type: AccountType;
-  /** Solde initial en FCFA (entier, peut être négatif). */
+  /** Code ISO 4217 de la devise du compte (XOF, EUR, USD…). */
+  currency: string;
+  /** Solde initial en plus petite unité de la devise du compte (entier, peut être négatif). */
   initialBalance: number;
   /** Date (AAAA-MM-JJ) à laquelle le solde initial correspond. */
   referenceDate: string;
@@ -33,7 +35,7 @@ export interface Category {
 export interface Transaction {
   id: number;
   type: TransactionType;
-  /** Montant entier strictement positif en FCFA. */
+  /** Montant entier strictement positif, en plus petite unité de la devise du compte source. */
   amount: number;
   accountId: number;
   toAccountId: number | null;
@@ -46,6 +48,8 @@ export interface Transaction {
 }
 
 export interface TransactionDetail extends Transaction {
+  /** Devise du compte source (donc du montant). */
+  currency: string;
   accountName: string;
   toAccountName: string | null;
   categoryName: string | null;
@@ -61,6 +65,17 @@ export interface Budget {
   updatedAt: string;
 }
 
+/** Taux de change saisi à la main : 1 `fromCurrency` = rateScaled / 10^8 `toCurrency`, à partir de `effectiveDate`. */
+export interface ExchangeRate {
+  id: number;
+  fromCurrency: string;
+  toCurrency: string;
+  rateScaled: number;
+  effectiveDate: string;
+  createdAt: string;
+  updatedAt: string;
+}
+
 export type BudgetLevel = 'ok' | 'warning' | 'exceeded';
 
 export interface BudgetStatus extends Budget {
@@ -69,6 +84,8 @@ export interface BudgetStatus extends Budget {
   remaining: number;
   /** Pourcentage utilisé, arrondi à l'entier (peut dépasser 100). */
   percent: number;
+  /** Dépenses de la catégorie exclues du « dépensé » faute de taux de change applicable. */
+  excludedCount: number;
   level: BudgetLevel;
 }
 

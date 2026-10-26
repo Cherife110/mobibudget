@@ -1,7 +1,7 @@
 import type { Db } from '../db/types';
 
 export const SETTING_KEYS = {
-  currency: 'currency',
+  referenceCurrency: 'reference_currency',
   onboardingCompleted: 'onboarding_completed',
   lastBackupAt: 'last_backup_at',
 } as const;

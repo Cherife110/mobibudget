@@ -42,11 +42,13 @@ export default function Settings() {
           <Ionicons name="cash-outline" size={22} color={colors.primary} />
           <View style={{ flex: 1 }}>
             <Text style={styles.linkLabel}>Devise</Text>
-            <Text style={styles.sub}>Franc CFA ({settings.currency}) — affichage « 25 000 FCFA »</Text>
+            <Text style={styles.sub}>Devise de référence : {settings.referenceCurrency} — totaux, budgets et statistiques</Text>
           </View>
         </View>
         <RowDivider />
         <LinkRow icon="wallet-outline" label="Comptes" sub="Créer, modifier, archiver" onPress={() => router.push('/accounts')} />
+        <RowDivider />
+        <LinkRow icon="swap-horizontal-outline" label="Taux de change" sub="Taux saisis à la main pour les comptes en devises étrangères" onPress={() => router.push('/exchange-rates')} />
         <RowDivider />
         <LinkRow icon="pricetags-outline" label="Catégories" sub="Ajouter, renommer, désactiver" onPress={() => router.push('/categories')} />
       </Card>
@@ -55,7 +57,7 @@ export default function Settings() {
       <Card style={{ gap: 12 }}>
         <Text style={styles.sub}>
           {info
-            ? `${formatNumber(info.accounts)} compte(s) · ${formatNumber(info.transactions)} opération(s) · ${formatNumber(info.budgets)} budget(s)`
+            ? `${formatNumber(info.accounts)} compte(s) · ${formatNumber(info.transactions)} opération(s) · ${formatNumber(info.budgets)} budget(s) · ${formatNumber(info.exchangeRates)} taux`
             : 'Chargement…'}
         </Text>
         <Text style={styles.sub}>

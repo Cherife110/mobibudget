@@ -2,7 +2,7 @@ import React, { useState } from 'react';
 import { StyleSheet, Text, View, type LayoutChangeEvent } from 'react-native';
 import Svg, { Circle, G, Line, Path, Rect, Text as SvgText } from 'react-native-svg';
 import { colors, chartPalette } from '../theme';
-import { formatCompact, formatFCFA } from '../utils/money';
+import { formatCompact, formatMoney, currencySymbol } from '../utils/money';
 import { formatDayMonthShort } from '../utils/dates';
 
 function useWidth(initial = 320) {
@@ -35,7 +35,7 @@ const PAD = { left: 8, right: 8, top: 18, bottom: 22 };
 export interface BarDatum { label: string; income: number; expense: number }
 
 /** Entrées (vert) et dépenses (rouge) côte à côte pour chaque jour. */
-export function BarChart({ data, height = 190 }: { data: BarDatum[]; height?: number }) {
+export function BarChart({ data, height = 190, currency = 'XOF' }: { data: BarDatum[]; height?: number; currency?: string }) {
   const { width, onLayout } = useWidth();
   const max = niceMax(Math.max(0, ...data.flatMap((d) => [d.income, d.expense])));
   const innerW = width - PAD.left - PAD.right;
@@ -51,7 +51,7 @@ export function BarChart({ data, height = 190 }: { data: BarDatum[]; height?: nu
         {[0, 0.5, 1].map((r) => (
           <Line key={r} x1={PAD.left} x2={width - PAD.right} y1={y(max * r)} y2={y(max * r)} stroke={colors.border} strokeWidth={1} />
         ))}
-        <SvgText x={PAD.left} y={11} fontSize={10} fill={colors.muted}>{formatCompact(max)} FCFA</SvgText>
+        <SvgText x={PAD.left} y={11} fontSize={10} fill={colors.muted}>{formatCompact(max)} {currencySymbol(currency)}</SvgText>
         {data.map((d, i) => {
           const cx = PAD.left + group * i + group / 2;
           return (
@@ -75,7 +75,7 @@ export function BarChart({ data, height = 190 }: { data: BarDatum[]; height?: nu
 export interface Slice { name: string; amount: number; percent: number }
 
 /** Répartition des dépenses par catégorie (anneau + légende). */
-export function DonutChart({ slices, size = 170 }: { slices: Slice[]; size?: number }) {
+export function DonutChart({ slices, size = 170, currency = 'XOF' }: { slices: Slice[]; size?: number; currency?: string }) {
   const total = slices.reduce((s, x) => s + x.amount, 0);
   const stroke = 26;
   const r = (size - stroke) / 2;
@@ -115,7 +115,7 @@ export function DonutChart({ slices, size = 170 }: { slices: Slice[]; size?: num
           <View style={[styles.dot, { backgroundColor: chartPalette[i % chartPalette.length] }]} />
           <Text style={styles.legendName} numberOfLines={1}>{s.name}</Text>
           <Text style={styles.legendPct}>{s.percent} %</Text>
-          <Text style={styles.legendAmount}>{formatFCFA(s.amount)}</Text>
+          <Text style={styles.legendAmount}>{formatMoney(s.amount, currency)}</Text>
         </View>
       ))}
     </View>
@@ -125,7 +125,7 @@ export function DonutChart({ slices, size = 170 }: { slices: Slice[]; size?: num
 export interface LinePoint { date: string; balance: number }
 
 /** Évolution du solde total (valeur réelle à chaque date). */
-export function LineChart({ points, height = 190 }: { points: LinePoint[]; height?: number }) {
+export function LineChart({ points, height = 190, currency = 'XOF' }: { points: LinePoint[]; height?: number; currency?: string }) {
   const { width, onLayout } = useWidth();
   if (points.length === 0) return null;
   const values = points.map((p) => p.balance);
@@ -153,7 +153,7 @@ export function LineChart({ points, height = 190 }: { points: LinePoint[]; heigh
         <SvgText x={PAD.left} y={height - 6} fontSize={10} fill={colors.muted}>{formatDayMonthShort(points[0].date)}</SvgText>
         <SvgText x={width - PAD.right} y={height - 6} fontSize={10} fill={colors.muted} textAnchor="end">{formatDayMonthShort(last.date)}</SvgText>
       </Svg>
-      <Text style={styles.chartNote}>Solde au {formatDayMonthShort(last.date)} : {formatFCFA(last.balance)}</Text>
+      <Text style={styles.chartNote}>Solde au {formatDayMonthShort(last.date)} : {formatMoney(last.balance, currency)}</Text>
     </View>
   );
 }

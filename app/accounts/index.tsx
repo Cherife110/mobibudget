@@ -5,7 +5,9 @@ import { useRouter } from 'expo-router';
 import { Button, Card, EmptyState, Money, RowDivider, Screen, SectionTitle } from '../../src/components/ui';
 import { useQuery } from '../../src/hooks/useQuery';
 import { colors } from '../../src/theme';
-import { getAccountsWithBalances } from '../../src/services/balance.service';
+import { RateWarning } from '../../src/components/RateWarning';
+import { getAccountsWithBalances, getGlobalBalance } from '../../src/services/balance.service';
+import { formatMoney } from '../../src/utils/money';
 import { ACCOUNT_TYPE_LABELS, type AccountWithBalance } from '../../src/types';
 import { formatDateFR } from '../../src/utils/dates';
 
@@ -21,9 +23,9 @@ function AccountList({ accounts, onOpen }: { accounts: AccountWithBalance[]; onO
             <View style={styles.icon}><Ionicons name={ICONS[a.type]} size={20} color={colors.primary} /></View>
             <View style={{ flex: 1 }}>
               <Text style={styles.name}>{a.name}</Text>
-              <Text style={styles.sub}>{ACCOUNT_TYPE_LABELS[a.type]} · depuis le {formatDateFR(a.referenceDate)}</Text>
+              <Text style={styles.sub}>{ACCOUNT_TYPE_LABELS[a.type]} · {a.currency} · depuis le {formatDateFR(a.referenceDate)}</Text>
             </View>
-            <Money amount={a.balance} size={15} />
+            <Money amount={a.balance} currency={a.currency} size={15} />
           </Pressable>
         </View>
       ))}
@@ -33,16 +35,27 @@ function AccountList({ accounts, onOpen }: { accounts: AccountWithBalance[]; onO
 
 export default function Accounts() {
   const router = useRouter();
-  const { data } = useQuery((db) => getAccountsWithBalances(db, true));
+  const { data: all } = useQuery(async (db) => ({ accounts: await getAccountsWithBalances(db, true), global: await getGlobalBalance(db) }));
+  const data = all?.accounts;
+  const global = all?.global;
   const active = (data ?? []).filter((a) => !a.archived);
   const archived = (data ?? []).filter((a) => a.archived);
-  const total = active.reduce((s, a) => s + a.balance, 0);
   return (
     <Screen>
       <Card style={{ gap: 4 }}>
-        <Text style={styles.sub}>Solde global (comptes actifs)</Text>
-        <Money amount={total} size={26} />
+        <Text style={styles.sub}>Solde global (comptes actifs, en {global?.currency ?? 'XOF'})</Text>
+        <Money amount={global?.total ?? 0} size={26} />
+        {global && global.byCurrency.length > 1
+          ? global.byCurrency.map((b) => (
+              <Text key={b.currency} style={styles.sub}>
+                {formatMoney(b.amount, b.currency)}{b.currency !== global.currency ? (b.converted === null ? ' · taux manquant' : ` ≈ ${formatMoney(b.converted, global.currency)}`) : ''}
+              </Text>
+            ))
+          : null}
       </Card>
+      {global && global.excluded.length > 0 ? (
+        <RateWarning text={`Solde en ${global.excluded.map((e) => e.currency).join(', ')} non inclus dans le total : aucun taux de change applicable.`} />
+      ) : null}
       {data && active.length === 0 ? <Card><EmptyState icon="wallet-outline" title="Aucun compte actif" text="Créez un compte pour enregistrer vos opérations." /></Card> : null}
       {active.length > 0 ? <AccountList accounts={active} onOpen={(id) => router.push(`/accounts/${id}`)} /> : null}
       <Button label="Nouveau compte" icon="add" onPress={() => router.push('/accounts/new')} />

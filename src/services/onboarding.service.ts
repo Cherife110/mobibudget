@@ -1,13 +1,14 @@
 import type { Db } from '../db/types';
 import { ValidationError } from '../utils/errors';
-import { CURRENCY_CODE } from '../constants/defaults';
+import { DEFAULT_REFERENCE_CURRENCY, isKnownCurrency } from '../constants/currencies';
 import { SETTING_KEYS, getAllSettings, setSetting } from '../repositories/settings.repository';
 import { createAccount, type AccountInput } from './account.service';
 import { seedDefaultCategories } from './category.service';
 import type { Clock } from './clock';
 
 export interface AppSettings {
-  currency: string;
+  /** Devise de référence des totaux, budgets et statistiques. */
+  referenceCurrency: string;
   onboardingCompleted: boolean;
   lastBackupAt: string | null;
 }
@@ -15,7 +16,7 @@ export interface AppSettings {
 export async function loadAppSettings(db: Db): Promise<AppSettings> {
   const s = await getAllSettings(db);
   return {
-    currency: s[SETTING_KEYS.currency] ?? CURRENCY_CODE,
+    referenceCurrency: isKnownCurrency(s[SETTING_KEYS.referenceCurrency]) ? s[SETTING_KEYS.referenceCurrency] : DEFAULT_REFERENCE_CURRENCY,
     onboardingCompleted: s[SETTING_KEYS.onboardingCompleted] === '1',
     lastBackupAt: s[SETTING_KEYS.lastBackupAt] ?? null,
   };
@@ -35,7 +36,7 @@ export async function completeOnboarding(db: Db, input: OnboardingInput, clock: 
     if (settings.onboardingCompleted) throw new ValidationError('La configuration initiale est déjà terminée.');
     await createAccount(tx, input.account, clock);
     await seedDefaultCategories(tx, { income: input.incomeCategories, expense: input.expenseCategories }, clock);
-    await setSetting(tx, SETTING_KEYS.currency, CURRENCY_CODE);
+    await setSetting(tx, SETTING_KEYS.referenceCurrency, DEFAULT_REFERENCE_CURRENCY);
     await setSetting(tx, SETTING_KEYS.onboardingCompleted, '1');
   });
 }

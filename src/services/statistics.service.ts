@@ -1,4 +1,5 @@
 import type { Db } from '../db/types';
+import { loadConvertedRows } from './converted.service';
 import {
   addDays,
   addMonths,
@@ -12,8 +13,10 @@ import {
 } from '../utils/dates';
 
 /**
- * Statistiques globales : seules les entrées et dépenses sont comptées.
+ * Statistiques globales : seules les entrées et dépenses sont comptées, exprimées dans la devise de référence
+ * (conversion de chaque opération à son taux du jour d'opération, voir converted.service.ts).
  * Les TRANSFERTS sont toujours exclus (ni revenu ni dépense).
+ * Une opération sans taux applicable est exclue des totaux ; `getExclusions` permet de l'afficher.
  */
 
 export type Granularity = 'day' | 'week' | 'month';
@@ -56,49 +59,47 @@ export function computeTotals(income: number, expense: number): PeriodTotals {
 }
 
 export async function getTotals(db: Db, from: string, to: string): Promise<PeriodTotals> {
-  const row = await db.first<{ income: number | null; expense: number | null }>(
-    `SELECT
-       SUM(CASE WHEN type = 'income' THEN amount ELSE 0 END) AS income,
-       SUM(CASE WHEN type = 'expense' THEN amount ELSE 0 END) AS expense
-     FROM transactions WHERE type IN ('income', 'expense') AND date >= ? AND date <= ?`,
-    [from, to],
-  );
-  return computeTotals(row?.income ?? 0, row?.expense ?? 0);
+  const { rows } = await loadConvertedRows(db, from, to);
+  let income = 0;
+  let expense = 0;
+  for (const r of rows) {
+    if (r.converted === null) continue; // exclue : taux manquant (voir getExclusions)
+    if (r.type === 'income') income += r.converted;
+    else expense += r.converted;
+  }
+  return computeTotals(income, expense);
 }
 
 /** Entrées/dépenses de chaque jour de la période, y compris les jours sans transaction (à 0). */
 export async function getDailySeries(db: Db, from: string, to: string): Promise<DailyPoint[]> {
-  const rows = await db.all<{ date: string; income: number; expense: number }>(
-    `SELECT date,
-       SUM(CASE WHEN type = 'income' THEN amount ELSE 0 END) AS income,
-       SUM(CASE WHEN type = 'expense' THEN amount ELSE 0 END) AS expense
-     FROM transactions WHERE type IN ('income', 'expense') AND date >= ? AND date <= ?
-     GROUP BY date`,
-    [from, to],
-  );
-  const byDate = new Map(rows.map((r) => [r.date, r]));
-  return eachDay(from, to).map((date) => {
-    const r = byDate.get(date);
-    return { date, income: r?.income ?? 0, expense: r?.expense ?? 0 };
-  });
+  const { rows } = await loadConvertedRows(db, from, to);
+  const byDate = new Map<string, DailyPoint>();
+  for (const r of rows) {
+    if (r.converted === null) continue;
+    const p = byDate.get(r.date) ?? { date: r.date, income: 0, expense: 0 };
+    if (r.type === 'income') p.income += r.converted;
+    else p.expense += r.converted;
+    byDate.set(r.date, p);
+  }
+  return eachDay(from, to).map((date) => byDate.get(date) ?? { date, income: 0, expense: 0 });
 }
 
 /** Répartition des dépenses par catégorie, de la plus importante à la plus faible. */
 export async function getCategoryBreakdown(db: Db, from: string, to: string): Promise<CategoryShare[]> {
-  const rows = await db.all<{ category_id: number; name: string; amount: number }>(
-    `SELECT t.category_id, c.name, SUM(t.amount) AS amount
-     FROM transactions t JOIN categories c ON c.id = t.category_id
-     WHERE t.type = 'expense' AND t.date >= ? AND t.date <= ?
-     GROUP BY t.category_id, c.name ORDER BY amount DESC, c.name ASC`,
-    [from, to],
-  );
-  const total = rows.reduce((s, r) => s + r.amount, 0);
-  return rows.map((r) => ({
-    categoryId: r.category_id,
-    name: r.name,
-    amount: r.amount,
-    percent: total > 0 ? Math.round((r.amount * 100) / total) : 0,
-  }));
+  const { rows } = await loadConvertedRows(db, from, to);
+  const byCategory = new Map<number, { name: string; amount: number }>();
+  for (const r of rows) {
+    if (r.type !== 'expense' || r.converted === null) continue;
+    const c = byCategory.get(r.categoryId) ?? { name: r.categoryName, amount: 0 };
+    c.amount += r.converted;
+    byCategory.set(r.categoryId, c);
+  }
+  const list = [...byCategory.entries()]
+    .map(([categoryId, c]) => ({ categoryId, name: c.name, amount: c.amount }))
+    .filter((c) => c.amount > 0)
+    .sort((a, b) => b.amount - a.amount || a.name.localeCompare(b.name, 'fr'));
+  const total = list.reduce((s, c) => s + c.amount, 0);
+  return list.map((c) => ({ ...c, percent: total > 0 ? Math.round((c.amount * 100) / total) : 0 }));
 }
 
 /** Période affichée dans les totaux : le jour, la semaine (lundi→dimanche) ou le mois de `anchor`. */

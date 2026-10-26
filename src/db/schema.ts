@@ -61,3 +61,28 @@ export const SCHEMA_V1: string[] = [
   `CREATE INDEX idx_transactions_category ON transactions (category_id, date)`,
   `CREATE INDEX idx_budgets_month ON budgets (month)`,
 ];
+
+/**
+ * Migration v2 : devises.
+ * - Chaque compte reçoit une devise (les comptes existants passent en XOF : leurs montants ne changent pas,
+ *   le XOF n'ayant pas de décimales, un entier de FCFA reste le même entier).
+ * - Taux de change saisis manuellement (jamais d'API externe), mis à l'échelle 10^8.
+ * - Devise de référence (totaux, budgets, statistiques) = XOF.
+ */
+export const SCHEMA_V2: string[] = [
+  `ALTER TABLE accounts ADD COLUMN currency TEXT NOT NULL DEFAULT 'XOF'`,
+  `CREATE TABLE exchange_rates (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    from_currency TEXT NOT NULL,
+    to_currency TEXT NOT NULL,
+    rate_scaled INTEGER NOT NULL CHECK (rate_scaled > 0),
+    effective_date TEXT NOT NULL,
+    created_at TEXT NOT NULL,
+    updated_at TEXT NOT NULL,
+    CHECK (from_currency <> to_currency),
+    UNIQUE (from_currency, to_currency, effective_date)
+  )`,
+  `CREATE INDEX idx_exchange_rates_pair ON exchange_rates (from_currency, to_currency, effective_date)`,
+  `CREATE INDEX idx_accounts_currency ON accounts (currency)`,
+  `INSERT OR IGNORE INTO settings (key, value) VALUES ('reference_currency', 'XOF')`,
+];

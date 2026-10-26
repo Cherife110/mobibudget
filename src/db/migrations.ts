@@ -1,5 +1,5 @@
 import type { Db } from './types';
-import { SCHEMA_V1 } from './schema';
+import { SCHEMA_V1, SCHEMA_V2 } from './schema';
 
 export interface Migration {
   version: number;
@@ -7,7 +7,10 @@ export interface Migration {
 }
 
 /** Migrations ordonnées. Ne jamais modifier une migration déjà publiée : en ajouter une nouvelle. */
-export const MIGRATIONS: Migration[] = [{ version: 1, statements: SCHEMA_V1 }];
+export const MIGRATIONS: Migration[] = [
+  { version: 1, statements: SCHEMA_V1 },
+  { version: 2, statements: SCHEMA_V2 },
+];
 
 export const LATEST_SCHEMA_VERSION = MIGRATIONS[MIGRATIONS.length - 1].version;
 

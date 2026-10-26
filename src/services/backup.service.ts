@@ -1,8 +1,12 @@
 import type { Db } from '../db/types';
-import type { Account, Budget, Category, Transaction } from '../types';
+import type { Account, Budget, Category, ExchangeRate, Transaction } from '../types';
 import { ACCOUNT_TYPES } from './account.service';
 import { TRANSACTION_TYPES, DESCRIPTION_MAX } from './transaction.service';
-import { CURRENCY_CODE, APP_VERSION } from '../constants/defaults';
+import { APP_VERSION } from '../constants/defaults';
+import { DEFAULT_REFERENCE_CURRENCY, isKnownCurrency } from '../constants/currencies';
+import { RATE_MAX_SCALED } from '../utils/fx';
+import { getReferenceCurrency } from './rates.service';
+import { listRates } from '../repositories/rates.repository';
 import { isValidISODate, isValidMonth, nowISO } from '../utils/dates';
 import { MAX_AMOUNT } from '../utils/money';
 import { SETTING_KEYS, getSetting, setSetting } from '../repositories/settings.repository';
@@ -13,7 +17,8 @@ import { mapBudget, type BudgetRow } from '../repositories/budgets.repository';
 import type { Clock } from './clock';
 
 export const BACKUP_APP = 'MobiBudget';
-export const BACKUP_FORMAT_VERSION = 1;
+/** v1 : FCFA uniquement. v2 : devise par compte + taux de change. Les fichiers v1 restent restaurables. */
+export const BACKUP_FORMAT_VERSION = 2;
 /** Garde-fous : un fichier de sauvegarde raisonnable reste très en dessous de ces limites. */
 export const BACKUP_MAX_BYTES = 25 * 1024 * 1024;
 const MAX_ROWS = 500_000;
@@ -27,11 +32,12 @@ export class BackupError extends Error {
 }
 
 export interface BackupData {
-  settings: { currency: string };
+  settings: { referenceCurrency: string };
   accounts: Account[];
   categories: Category[];
   transactions: Transaction[];
   budgets: Budget[];
+  exchangeRates: ExchangeRate[];
 }
 
 /**
@@ -49,12 +55,13 @@ export interface BackupFile {
 export async function createBackup(db: Db, clock: Clock = {}): Promise<BackupFile> {
   // Lecture dans une transaction : instantané cohérent même si une écriture survient en parallèle.
   return db.transaction(async (tx) => {
-    const [accounts, categories, txRows, budgetRows, currency] = await Promise.all([
+    const [accounts, categories, txRows, budgetRows, referenceCurrency, rates] = await Promise.all([
       listAccounts(tx, true),
       listCategories(tx),
       tx.all<TransactionRow>('SELECT * FROM transactions ORDER BY id ASC'),
       tx.all<BudgetRow>('SELECT * FROM budgets ORDER BY id ASC'),
-      getSetting(tx, SETTING_KEYS.currency),
+      getReferenceCurrency(tx),
+      listRates(tx),
     ]);
     return {
       app: BACKUP_APP,
@@ -62,11 +69,12 @@ export async function createBackup(db: Db, clock: Clock = {}): Promise<BackupFil
       appVersion: APP_VERSION,
       exportedAt: nowISO(clock.now),
       data: {
-        settings: { currency: currency ?? CURRENCY_CODE },
+        settings: { referenceCurrency },
         accounts: [...accounts].sort((a, b) => a.id - b.id),
         categories: [...categories].sort((a, b) => a.id - b.id),
         transactions: txRows.map(mapTransaction),
         budgets: budgetRows.map(mapBudget),
+        exchangeRates: [...rates].sort((a, b) => a.id - b.id),
       },
     };
   });
@@ -160,21 +168,35 @@ export function validateBackup(raw: unknown): BackupFile {
   const data = reqRecord(root.data, 'data');
 
   const settingsRaw = reqRecord(data.settings, 'data.settings');
-  const currency = reqString(settingsRaw, 'currency', 'data.settings', 10);
+  let referenceCurrency = DEFAULT_REFERENCE_CURRENCY;
+  if (version >= 2) {
+    referenceCurrency = reqString(settingsRaw, 'referenceCurrency', 'data.settings', 3);
+    if (!isKnownCurrency(referenceCurrency)) fail('data.settings.referenceCurrency', 'devise inconnue');
+  } else {
+    reqString(settingsRaw, 'currency', 'data.settings', 10); // v1 : FCFA, tout est en XOF
+  }
 
   const accountIds = new Set<number>();
+  const accountCurrency = new Map<number, string>();
   const accounts = reqArray(data.accounts, 'data.accounts').map((item, i): Account => {
     const p = `comptes[${i}]`;
     const r = reqRecord(item, p);
     const id = reqInt(r, 'id', p, { min: 1 });
     if (accountIds.has(id)) fail(`${p}.id`, 'identifiant en double');
     accountIds.add(id);
+    let currency = DEFAULT_REFERENCE_CURRENCY; // v1 : comptes en FCFA (XOF), montants inchangés
+    if (version >= 2) {
+      currency = reqString(r, 'currency', p, 3);
+      if (!isKnownCurrency(currency)) fail(`${p}.currency`, 'devise inconnue');
+    }
+    accountCurrency.set(id, currency);
     const referenceDate = r.referenceDate;
     if (!isValidISODate(referenceDate)) fail(`${p}.referenceDate`, 'date invalide');
     return {
       id,
       name: reqString(r, 'name', p),
       type: reqOneOf(r, 'type', p, ACCOUNT_TYPES),
+      currency,
       initialBalance: reqInt(r, 'initialBalance', p, { min: -MAX_AMOUNT, max: MAX_AMOUNT }),
       referenceDate,
       archived: reqBool(r, 'archived', p),
@@ -234,6 +256,9 @@ export function validateBackup(raw: unknown): BackupFile {
       toAccountId = reqInt(r, 'toAccountId', p, { min: 1 });
       if (!accountIds.has(toAccountId)) fail(`${p}.toAccountId`, `le compte ${toAccountId} n'existe pas`);
       if (toAccountId === accountId) fail(`${p}.toAccountId`, 'un transfert vers le même compte est interdit');
+      if (accountCurrency.get(toAccountId) !== accountCurrency.get(accountId)) {
+        fail(`${p}.toAccountId`, 'un transfert entre deux devises différentes est interdit');
+      }
       if (r.categoryId !== null && r.categoryId !== undefined) fail(`${p}.categoryId`, 'un transfert n\'a pas de catégorie');
     } else {
       if (r.toAccountId !== null && r.toAccountId !== undefined) fail(`${p}.toAccountId`, 'réservé aux transferts');
@@ -281,12 +306,39 @@ export function validateBackup(raw: unknown): BackupFile {
     };
   });
 
+  const rateKeys = new Set<string>();
+  const exchangeRates: ExchangeRate[] =
+    version >= 2
+      ? reqArray(data.exchangeRates, 'data.exchangeRates').map((item, i): ExchangeRate => {
+          const p = `taux[${i}]`;
+          const r = reqRecord(item, p);
+          const from = reqString(r, 'fromCurrency', p, 3);
+          const to = reqString(r, 'toCurrency', p, 3);
+          if (!isKnownCurrency(from) || !isKnownCurrency(to)) fail(p, 'devise inconnue');
+          if (from === to) fail(p, 'les deux devises doivent être différentes');
+          const effectiveDate = r.effectiveDate;
+          if (!isValidISODate(effectiveDate)) fail(`${p}.effectiveDate`, 'date invalide');
+          const key = `${from}>${to}@${effectiveDate}`;
+          if (rateKeys.has(key)) fail(p, 'deux taux pour la même paire et la même date');
+          rateKeys.add(key);
+          return {
+            id: reqInt(r, 'id', p, { min: 1 }),
+            fromCurrency: from,
+            toCurrency: to,
+            rateScaled: reqInt(r, 'rateScaled', p, { min: 1, max: RATE_MAX_SCALED }),
+            effectiveDate,
+            createdAt: reqTimestamp(r, 'createdAt', p),
+            updatedAt: reqTimestamp(r, 'updatedAt', p),
+          };
+        })
+      : [];
+
   return {
     app: BACKUP_APP,
     formatVersion: version,
     appVersion: typeof root.appVersion === 'string' ? root.appVersion.slice(0, 20) : 'inconnue',
     exportedAt: typeof root.exportedAt === 'string' ? root.exportedAt : '',
-    data: { settings: { currency }, accounts, categories, transactions, budgets },
+    data: { settings: { referenceCurrency }, accounts, categories, transactions, budgets, exchangeRates },
   };
 }
 
@@ -307,6 +359,7 @@ export interface BackupSummary {
   categories: number;
   transactions: number;
   budgets: number;
+  exchangeRates: number;
 }
 
 export function summarizeBackup(file: BackupFile): BackupSummary {
@@ -315,6 +368,7 @@ export function summarizeBackup(file: BackupFile): BackupSummary {
     categories: file.data.categories.length,
     transactions: file.data.transactions.length,
     budgets: file.data.budgets.length,
+    exchangeRates: file.data.exchangeRates.length,
   };
 }
 
@@ -326,6 +380,7 @@ export function summarizeBackup(file: BackupFile): BackupSummary {
 export async function restoreBackup(db: Db, backup: BackupFile): Promise<BackupSummary> {
   const d = backup.data;
   await db.transaction(async (tx) => {
+    await tx.run('DELETE FROM exchange_rates');
     await tx.run('DELETE FROM budgets');
     await tx.run('DELETE FROM transactions');
     await tx.run('DELETE FROM categories');
@@ -334,9 +389,9 @@ export async function restoreBackup(db: Db, backup: BackupFile): Promise<BackupS
 
     for (const a of d.accounts) {
       await tx.run(
-        `INSERT INTO accounts (id, name, type, initial_balance, reference_date, archived, created_at, updated_at)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
-        [a.id, a.name, a.type, a.initialBalance, a.referenceDate, a.archived ? 1 : 0, a.createdAt, a.updatedAt],
+        `INSERT INTO accounts (id, name, type, currency, initial_balance, reference_date, archived, created_at, updated_at)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+        [a.id, a.name, a.type, a.currency, a.initialBalance, a.referenceDate, a.archived ? 1 : 0, a.createdAt, a.updatedAt],
       );
     }
     for (const c of d.categories) {
@@ -358,7 +413,14 @@ export async function restoreBackup(db: Db, backup: BackupFile): Promise<BackupS
         [b.id, b.categoryId, b.month, b.amount, b.createdAt, b.updatedAt],
       );
     }
-    await setSetting(tx, SETTING_KEYS.currency, d.settings.currency);
+    for (const r of d.exchangeRates) {
+      await tx.run(
+        `INSERT INTO exchange_rates (id, from_currency, to_currency, rate_scaled, effective_date, created_at, updated_at)
+         VALUES (?, ?, ?, ?, ?, ?, ?)`,
+        [r.id, r.fromCurrency, r.toCurrency, r.rateScaled, r.effectiveDate, r.createdAt, r.updatedAt],
+      );
+    }
+    await setSetting(tx, SETTING_KEYS.referenceCurrency, d.settings.referenceCurrency);
     await setSetting(tx, SETTING_KEYS.onboardingCompleted, '1');
   });
   return summarizeBackup(backup);
@@ -382,6 +444,7 @@ export async function getBackupInfo(db: Db): Promise<BackupInfo> {
     categories: row?.c ?? 0,
     transactions: row?.t ?? 0,
     budgets: row?.b ?? 0,
+    exchangeRates: (await db.first<{ n: number }>('SELECT COUNT(*) AS n FROM exchange_rates'))?.n ?? 0,
     lastBackupAt: await getSetting(db, SETTING_KEYS.lastBackupAt),
   };
 }

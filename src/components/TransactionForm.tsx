@@ -6,19 +6,30 @@ import { DateField } from './DateField';
 import { useApp } from '../context/AppContext';
 import { useQuery } from '../hooks/useQuery';
 import { colors } from '../theme';
+import { getCurrency } from '../constants/currencies';
 import type { CategoryKind, TransactionDetail, TransactionType } from '../types';
 import { listAccounts } from '../repositories/accounts.repository';
 import { listCategories } from '../repositories/categories.repository';
 import { createTransaction, deleteTransaction, updateTransaction } from '../services/transaction.service';
 import { errorMessage } from '../utils/errors';
-import { formatNumber, parseAmount } from '../utils/money';
+import { currencySymbol, formatPlainAmount, parseMoneyInput } from '../utils/money';
 import { todayISO } from '../utils/dates';
 import { confirmAsync } from '../utils/ui';
+
+/** Garde uniquement chiffres et un séparateur décimal, limité aux décimales de la devise (« 12,5 », jamais « 12,555 € »). */
+function sanitizeAmount(text: string, currency: string): string {
+  const { exponent } = getCurrency(currency);
+  let t = text.replace(/\./g, ',').replace(/[^\d,]/g, '');
+  if (exponent === 0) return t.replace(/,/g, '').slice(0, 15);
+  const first = t.indexOf(',');
+  if (first >= 0) t = t.slice(0, first + 1) + t.slice(first + 1).replace(/,/g, '').slice(0, exponent);
+  return t.slice(0, 16);
+}
 
 export function TransactionForm({ initial, defaultType = 'expense', defaultAccountId }: {
   initial?: TransactionDetail; defaultType?: TransactionType; defaultAccountId?: number;
 }) {
-  const { db, refresh } = useApp();
+  const { db, refresh, settings } = useApp();
   const router = useRouter();
   const editing = !!initial;
 
@@ -28,7 +39,7 @@ export function TransactionForm({ initial, defaultType = 'expense', defaultAccou
   }));
 
   const [type, setType] = useState<TransactionType>(initial?.type ?? defaultType);
-  const [digits, setDigits] = useState(initial ? String(initial.amount) : '');
+  const [amountText, setAmountText] = useState(initial ? formatPlainAmount(initial.amount, initial.currency) : '');
   const [accountId, setAccountId] = useState<number | null>(initial?.accountId ?? defaultAccountId ?? null);
   const [toAccountId, setToAccountId] = useState<number | null>(initial?.toAccountId ?? null);
   const [categoryId, setCategoryId] = useState<number | null>(initial?.categoryId ?? null);
@@ -38,11 +49,22 @@ export function TransactionForm({ initial, defaultType = 'expense', defaultAccou
   const [saving, setSaving] = useState(false);
 
   const activeAccounts = useMemo(() => (data?.accounts ?? []).filter((a) => !a.archived), [data]);
+  const source = (data?.accounts ?? []).find((a) => a.id === accountId);
+  const currency = source?.currency ?? initial?.currency ?? settings.referenceCurrency;
+  const multiCurrency = new Set((data?.accounts ?? []).map((a) => a.currency)).size > 1;
+  const accountLabel = (a: { name: string; currency: string }) => (multiCurrency ? `${a.name} · ${a.currency}` : a.name);
 
   // Compte source par défaut : le premier compte actif.
   useEffect(() => {
     if (accountId === null && activeAccounts.length > 0) setAccountId(activeAccounts[0].id);
   }, [accountId, activeAccounts]);
+
+  // Changement de devise (autre compte source) : on retire les décimales en trop ; le destinataire doit avoir la même devise.
+  useEffect(() => {
+    setAmountText((t) => sanitizeAmount(t, currency));
+    const to = activeAccounts.find((a) => a.id === toAccountId);
+    if (to && to.currency !== currency) setToAccountId(null);
+  }, [currency]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const kind: CategoryKind | null = type === 'transfer' ? null : type;
   const categories = useMemo(
@@ -60,9 +82,13 @@ export function TransactionForm({ initial, defaultType = 'expense', defaultAccou
 
   const submit = async () => {
     setError(null);
-    const amount = parseAmount(digits);
+    const amount = parseMoneyInput(amountText, currency);
     if (amount === null || amount === 0) {
-      setError('Saisissez un montant entier supérieur à 0, en FCFA.');
+      setError(
+        getCurrency(currency).exponent === 0
+          ? `Saisissez un montant entier supérieur à 0, en ${currencySymbol(currency)}.`
+          : `Saisissez un montant supérieur à 0 (${getCurrency(currency).exponent} décimales au plus), en ${currencySymbol(currency)}.`,
+      );
       return;
     }
     setSaving(true);
@@ -93,6 +119,7 @@ export function TransactionForm({ initial, defaultType = 'expense', defaultAccou
 
   const noAccount = data && activeAccounts.length === 0;
   const accent = type === 'income' ? colors.income : type === 'expense' ? colors.expense : colors.primary;
+  const destinations = activeAccounts.filter((a) => a.id !== accountId && a.currency === currency);
 
   return (
     <View style={{ gap: 14 }}>
@@ -110,12 +137,12 @@ export function TransactionForm({ initial, defaultType = 'expense', defaultAccou
       {error ? <Banner tone="error" text={error} /> : null}
 
       <Field
-        label="Montant"
-        value={digits ? formatNumber(Number(digits)) : ''}
-        onChangeText={(t) => setDigits(t.replace(/\D/g, '').slice(0, 13))}
-        keyboardType="number-pad"
-        placeholder="0"
-        suffix="FCFA"
+        label={`Montant (${currency})`}
+        value={amountText}
+        onChangeText={(t) => setAmountText(sanitizeAmount(t, currency))}
+        keyboardType={getCurrency(currency).exponent === 0 ? 'number-pad' : 'decimal-pad'}
+        placeholder={getCurrency(currency).exponent === 0 ? '0' : '0,00'}
+        suffix={currencySymbol(currency)}
         autoFocus={!editing}
         style={{ fontSize: 24, fontWeight: '700', color: accent }}
       />
@@ -123,21 +150,26 @@ export function TransactionForm({ initial, defaultType = 'expense', defaultAccou
       <View style={{ gap: 6 }}>
         <Text style={styles.label}>{type === 'transfer' ? 'Compte source' : 'Compte'}</Text>
         <ChipRow>
-          {activeAccounts.map((a) => (
-            <Chip key={a.id} label={a.name} selected={accountId === a.id} onPress={() => setAccountId(a.id)} />
+          {activeAccounts.filter((a) => !editing || a.currency === initial!.currency).map((a) => (
+            <Chip key={a.id} label={accountLabel(a)} selected={accountId === a.id} onPress={() => setAccountId(a.id)} />
           ))}
         </ChipRow>
+        {editing && multiCurrency ? <Text style={styles.hint}>Seuls les comptes en {initial!.currency} sont proposés : le montant d'une opération ne peut pas changer de devise.</Text> : null}
       </View>
 
       {type === 'transfer' ? (
         <View style={{ gap: 6 }}>
           <Text style={styles.label}>Compte destinataire</Text>
           <ChipRow>
-            {activeAccounts.filter((a) => a.id !== accountId).map((a) => (
-              <Chip key={a.id} label={a.name} selected={toAccountId === a.id} onPress={() => setToAccountId(a.id)} />
+            {destinations.map((a) => (
+              <Chip key={a.id} label={accountLabel(a)} selected={toAccountId === a.id} onPress={() => setToAccountId(a.id)} />
             ))}
           </ChipRow>
-          {activeAccounts.length < 2 ? <Text style={styles.hint}>Il faut au moins deux comptes actifs pour faire un transfert.</Text> : null}
+          {destinations.length === 0 ? (
+            <Text style={styles.hint}>Aucun autre compte actif en {currency}. Les transferts se font entre comptes de même devise (les opérations de change ne sont pas encore disponibles).</Text>
+          ) : multiCurrency ? (
+            <Text style={styles.hint}>Seuls les comptes en {currency} sont proposés : un transfert ne change pas de devise.</Text>
+          ) : null}
         </View>
       ) : (
         <View style={{ gap: 6 }}>

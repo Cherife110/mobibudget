@@ -76,7 +76,7 @@ describe('gestion des catégories', () => {
     const a = await spend('Achats', 7_000, '2026-10-05');
     const b = await spend('Achats', 2_000, '2026-10-12');
     await spend('Transport', 1_000);
-    const balance = await getGlobalBalance(f.db);
+    const balance = (await getGlobalBalance(f.db)).total;
     const before = await getTransaction(f.db, a.id);
 
     const r = await reassignCategory(f.db, f.cat('Achats'), f.cat('Autres dépenses'), {}, { now: new Date(2026, 9, 24, 18, 0) });
@@ -87,7 +87,7 @@ describe('gestion des catégories', () => {
     expect(after?.createdAt).toBe(before?.createdAt);
     expect(after?.updatedAt).not.toBe(before?.updatedAt);
     expect((await getTransaction(f.db, b.id))?.categoryName).toBe('Autres dépenses');
-    expect(await getGlobalBalance(f.db)).toBe(balance);                         // aucun solde ne bouge
+    expect((await getGlobalBalance(f.db)).total).toBe(balance);                         // aucun solde ne bouge
     expect(await getCategoryUsage(f.db, f.cat('Achats'))).toEqual({ transactions: 0, budgets: 0 });
     // la catégorie vidée peut maintenant être supprimée
     await deleteCategory(f.db, f.cat('Achats'));
