@@ -44,6 +44,16 @@
     "web": {
       "bundler": "metro",
       "output": "single"
+    },
+    "extra": {
+      "router": {
+        "asyncRoutes": {
+          "web": true
+        }
+      },
+      "eas": {
+        "projectId": "b3bbfd72-57d6-4416-8442-664a5daf00ac"
+      }
     }
   }
 }
