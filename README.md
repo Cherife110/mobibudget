@@ -1,18 +1,21 @@
 # MobiBudget
 
-Application Android personnelle de gestion financière — **100 % hors connexion**, en français, en FCFA.
+Application Android personnelle de gestion financière — fonctionne **entièrement hors connexion**, avec une **sauvegarde en ligne facultative** (compte Google). En français, FCFA et autres devises.
 React Native · Expo SDK 58 · Expo Router · TypeScript strict · SQLite (`expo-sqlite`).
 
-Aucun compte en ligne, aucun serveur, aucune synchronisation : les données restent sur le téléphone.
-L'application ne demande **aucune permission Android** (y compris `INTERNET`, volontairement retirée du manifeste).
+Les données vivent dans SQLite sur le téléphone. Deux envois sont possibles, chacun facultatif et choisi par l'utilisateur :
+- une **copie** des données avec la sauvegarde en ligne (compte Google, Firebase) : voir « Sauvegarde en ligne » et `docs/FIREBASE.md` ;
+- des **statistiques d'utilisation** sans aucune donnée financière (Firebase Analytics) : voir « Confidentialité et statistiques ».
+
+Permissions Android : `INTERNET` (ces deux envois) ; stockage, vibreur, superposition et identifiant publicitaire sont retirés.
 
 ## Lancer le projet
 
 ```bash
 npm install
 npm run typecheck      # TypeScript strict
-npm test               # 109 tests sur SQLite réel (règles métier)
-npm start              # serveur de développement (Expo Go sur le téléphone, même Wi‑Fi)
+npm test               # 136 tests sur SQLite réel (règles métier, sauvegarde en ligne simulée)
+npm start              # serveur de développement : version de développement (npm run build:dev), touche « s » pour Expo Go
 npm run web            # version navigateur, pour tester sur le PC (voir ci-dessous)
 ```
 
@@ -60,6 +63,23 @@ Ce build local est signé avec la clé de debug du modèle Expo : installable, m
 > Change-le **avant** le premier build si besoin : il ne pourra plus changer ensuite sans créer une autre application.
 > Garde toujours le même identifiant et la même clé de signature (EAS la conserve) pour pouvoir mettre l'application à jour sans perdre les données.
 
+## Confidentialité et statistiques
+
+- **Accord obligatoire** : la configuration initiale comporte une étape « Vos données, vos choix », juste après la présentation et
+  avant le choix Google / hors ligne ; les utilisateurs existants (et après une restauration) la voient au démarrage. L'accord est enregistré dans `settings` (`privacy_policy_version`,
+  `privacy_accepted_at`, `analytics_consent`). Il est propre au téléphone : ni exporté dans les sauvegardes, ni remplacé par une restauration.
+- **Modifier la politique** : texte dans `src/constants/privacy.ts` (affiché dans l'appli, lisible hors connexion), puis augmenter
+  `PRIVACY_POLICY_VERSION` : chacun devra l'accepter à nouveau, et l'accord pour les statistiques est redemandé.
+- **Statistiques facultatives** (case décochée par défaut, modifiable dans Paramètres › Confidentialité) : Google Analytics pour Firebase,
+  via `src/lib/analytics.ts`. Firebase compte seul les installations, sessions et utilisateurs actifs ; seul événement personnalisé :
+  `onboarding_complete`, sans paramètre. **Ne jamais envoyer de donnée financière** (montant, nom de compte ou de catégorie, description).
+- `firebase.json` coupe la collecte tant que l'accord n'est pas donné et désactive l'identifiant publicitaire, l'Android ID et les usages
+  publicitaires ; `app.json` bloque les permissions publicitaires (`AD_ID`, `ACCESS_ADSERVICES_*`).
+- **Navigateur** : pas de Firebase, les statistiques sont ignorées sans erreur (`analytics.web.ts`). Pour les tester sur le téléphone,
+  il faut une version compilée avec EAS (`npm run build:dev`).
+- **Mise en place** (projet Firebase, `google-services.json` à la racine, durée de conservation, test dans DebugView) : `docs/FIREBASE.md`.
+- Avant le Play Store : publier le texte de la politique à une adresse publique (demandée aussi par le formulaire « Sécurité des données »).
+
 ## Règles financières (centralisées dans `src/services`)
 
 | Règle | Implémentation |
@@ -92,6 +112,30 @@ et le solde global portent sur les comptes actifs, pour que le dernier point du 
 - **Transferts entre devises différentes : refusés** (une vraie opération de change, avec deux montants, n'existe pas encore).
 - Sauvegarde **v2** : devise par compte, taux et devise de référence. Les sauvegardes v1 (FCFA) restent restaurables.
 
+## Sauvegarde en ligne (facultative)
+
+- Configuration : **`docs/FIREBASE.md`** (projet Firebase gratuit, connexion Google, règles `firestore.rules`).
+- Au premier lancement : choix **« Avec mon compte Google »** ou **« Hors ligne uniquement »**, modifiable ensuite dans Paramètres.
+- Une copie complète est envoyée après les modifications (1 min plus tard), à l'ouverture, au retour d'internet et environ toutes les 12 h en arrière-plan (horaire décidé par Android). Données inchangées → rien n'est renvoyé.
+- Options : automatique oui/non, **Wi-Fi seulement**, **mot de passe** (chiffrement AES-256-GCM, désactivé par défaut ; mot de passe oublié = sauvegarde irrécupérable).
+- **5 sauvegardes** conservées. Un envoi n'est visible qu'une fois complet (empreinte SHA-256 vérifiée à la restauration). Jamais d'envoi d'une base vide.
+- Un échec réseau ne touche jamais aux données locales ; nouvel essai automatique (1, 2, 4… min, max 60 min).
+- Nouveau téléphone : se connecter au même compte → proposition de restaurer la dernière sauvegarde. Restaurer par-dessus des données existantes crée d'abord une copie de sécurité locale (`Documents/securite/`).
+- La connexion Google nécessite une version compilée (`npm run build:dev` ou `npm run build:apk`) : elle ne fonctionne ni dans Expo Go ni dans le navigateur.
+- **Suppression du compte** : Paramètres › Sauvegarde en ligne › « Supprimer mon compte en ligne » efface toutes les sauvegardes (même inachevées), puis le compte Firebase, et retire l'accès accordé dans le compte Google. Les données locales restent. Firebase peut exiger une connexion récente : l'application redemande alors la connexion Google. Après un échec (réseau…), relancer termine le travail (`deleteCloudAccount`).
+
+### Demande de suppression sans l'application (Play Store)
+Google Play demande aussi une adresse web où demander la suppression du compte (Play Console › Sécurité des données).
+Publie avec la politique un texte comme celui-ci :
+
+> **Supprimer votre compte MobiBudget.** Dans l'application : Paramètres › Sauvegarde en ligne › « Supprimer mon compte en ligne ».
+> Sans accès à l'application : écrivez à techerife@gmail.com depuis l'adresse e-mail de votre compte Google, objet « Suppression de compte MobiBudget ».
+> Vos sauvegardes en ligne et votre compte sont supprimés dans un délai d'un mois au plus ; rien n'en est conservé.
+> Les statistiques d'utilisation ne sont pas liées à votre compte et s'effacent d'elles-mêmes au bout de 2 mois.
+
+Pour traiter une demande reçue par e-mail : console Firebase › Authentication › rechercher l'adresse et noter l'UID ;
+Firestore › `users` › `{UID}` › supprimer la collection `backups` avec ses sous-collections `chunks` ; enfin supprimer l'utilisateur dans Authentication.
+
 ## Sauvegarde / restauration
 
 - Export JSON versionné (`formatVersion: 1`) : comptes, catégories, opérations, budgets, paramètres.
@@ -105,11 +149,13 @@ et le solde global portent sur les comptes actifs, pour que le dernier point du 
 
 ```
 app/                      écrans (Expo Router) — (tabs): Accueil, Historique, Statistiques, Budgets, Paramètres
-  accounts/ transactions/ add-transaction.tsx categories.tsx onboarding.tsx
+  accounts/ transactions/ add-transaction.tsx categories.tsx onboarding.tsx privacy.tsx privacy-policy.tsx cloud-backups.tsx
 src/
   db/            types.ts (Db atomique + verrou), schema.ts, migrations.ts (versionnées), database.ts (expo-sqlite)
   repositories/  accès SQL paramétré (comptes, catégories, transactions, budgets, paramètres)
-  services/      règles métier testables (balance, transaction, budget, statistics, backup, account, category, onboarding)
+  services/      règles métier testables (balance, transaction, budget, statistics, backup, account, category, onboarding, privacy, cloudBackup)
+  cloud/         adaptateurs de la sauvegarde en ligne : Firebase (Auth, Firestore), Google Sign-In, chiffrement, réseau, tâche de fond
+  lib/           analytics.ts (statistiques Firebase Analytics)
   components/ hooks/ context/ utils/ constants/ types/
 __tests__/       tests Jest sur de vrais SQLite (node:sqlite), sans mock
 ```
@@ -119,9 +165,13 @@ Clés étrangères activées (`PRAGMA foreign_keys = ON`), index sur dates / com
 
 ## Limitations connues
 
+- Sauvegarde en ligne : la connexion Google, Firestore, la suppression du compte et les règles de sécurité n'ont pas pu être testés ici (pas d'accès aux services Google) ; la logique l'est avec un faux cloud.
 - Non testée sur un téléphone ou un émulateur Android (voir le compte rendu de vérification) : seul le code métier est couvert par des tests automatisés ; l'interface a été vérifiée par typage strict et compilation du bundle.
 - Sauvegarde non chiffrée.
 - Pas de saisie récurrente, de pièces jointes, d'opération de change entre comptes de devises différentes, de changement de devise de référence, de mode sombre (mode clair forcé).
 - Mono-appareil : pas de synchronisation (changer de téléphone = export puis restauration).
+- `package.json › overrides` : `@react-native-firebase/app` réutilise le SDK `firebase` du projet. Sans cela, deux copies
+  de `@firebase/app` sont installées et la connexion Google comme Firestore échouent sur le téléphone. Si tu changes la version
+  de `firebase`, vérifie qu'il n'en reste qu'une : `npm ls @firebase/app`.
 - Outils de développement : TypeScript 6 et Jest 30 (versions attendues par Expo SDK 58). Ne lance pas `npm audit fix --force` : il ferait reculer Expo de plusieurs années.
 - Les alertes `npm audit` concernent `@expo/cli` (outil de développement, non embarqué dans l'APK).

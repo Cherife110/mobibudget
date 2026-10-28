@@ -24,6 +24,8 @@ export async function setup(): Promise<Fixture> {
   const cash = await createAccount(t.db, { name: 'Espèces', type: 'cash', initialBalance: 50_000, referenceDate: '2026-10-01' }, clock);
   const momo = await createAccount(t.db, { name: 'Mobile Money', type: 'mobile_money', initialBalance: 20_000, referenceDate: '2026-10-01' }, clock);
   const bank = await createAccount(t.db, { name: 'Banque', type: 'bank', initialBalance: 100_000, referenceDate: '2026-10-01' }, clock);
+  // Comme dans l'application : des comptes n'existent qu'après la configuration initiale.
+  await t.db.run("INSERT INTO settings (key, value) VALUES ('onboarding_completed', '1')");
   const cats = await listCategories(t.db);
   const byName = new Map(cats.map((c) => [`${c.kind}:${c.name}`, c.id]));
   const cat = (name: string) => {

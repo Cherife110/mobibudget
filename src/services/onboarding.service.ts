@@ -1,6 +1,7 @@
 import type { Db } from '../db/types';
 import { ValidationError } from '../utils/errors';
 import { DEFAULT_REFERENCE_CURRENCY, isKnownCurrency } from '../constants/currencies';
+import { PRIVACY_POLICY_VERSION } from '../constants/privacy';
 import { SETTING_KEYS, getAllSettings, setSetting } from '../repositories/settings.repository';
 import { createAccount, type AccountInput } from './account.service';
 import { seedDefaultCategories } from './category.service';
@@ -11,14 +12,22 @@ export interface AppSettings {
   referenceCurrency: string;
   onboardingCompleted: boolean;
   lastBackupAt: string | null;
+  /** Politique de confidentialité en vigueur acceptée sur ce téléphone. */
+  privacyAccepted: boolean;
+  /** Statistiques d'utilisation autorisées (facultatif). */
+  analyticsConsent: boolean;
 }
 
 export async function loadAppSettings(db: Db): Promise<AppSettings> {
   const s = await getAllSettings(db);
+  const privacyAccepted = s[SETTING_KEYS.privacyPolicyVersion] === PRIVACY_POLICY_VERSION;
   return {
     referenceCurrency: isKnownCurrency(s[SETTING_KEYS.referenceCurrency]) ? s[SETTING_KEYS.referenceCurrency] : DEFAULT_REFERENCE_CURRENCY,
     onboardingCompleted: s[SETTING_KEYS.onboardingCompleted] === '1',
     lastBackupAt: s[SETTING_KEYS.lastBackupAt] ?? null,
+    privacyAccepted,
+    // Un accord donné pour une ancienne version de la politique ne vaut plus.
+    analyticsConsent: privacyAccepted && s[SETTING_KEYS.analyticsConsent] === '1',
   };
 }
 

@@ -14,6 +14,8 @@ export default function TabsLayout() {
   const { settings } = useApp();
   const insets = useSafeAreaInsets();
   if (!settings.onboardingCompleted) return <Redirect href="/onboarding" />;
+  // La configuration initiale demande déjà l'accord : ici, utilisateurs existants, restauration, nouvelle version de la politique.
+  if (!settings.privacyAccepted) return <Redirect href="/privacy" />;
   return (
     <Tabs
       screenOptions={{

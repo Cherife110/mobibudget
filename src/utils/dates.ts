@@ -142,3 +142,15 @@ export function parseInputDate(text: string): string | null {
 export function nowISO(now: Date = new Date()): string {
   return now.toISOString();
 }
+
+/** « à l'instant », « il y a 5 min », « il y a 3 h », sinon « le 12 oct. 2026 ». */
+export function formatRelativeFR(isoTimestamp: string, now: Date = new Date()): string {
+  const t = Date.parse(isoTimestamp);
+  if (Number.isNaN(t)) return '—';
+  const minutes = Math.floor((now.getTime() - t) / 60_000);
+  if (minutes < 1) return "à l'instant";
+  if (minutes < 60) return `il y a ${minutes} min`;
+  const hours = Math.floor(minutes / 60);
+  if (hours < 24) return `il y a ${hours} h`;
+  return `le ${formatDateFR(toISODate(new Date(t)))}`;
+}

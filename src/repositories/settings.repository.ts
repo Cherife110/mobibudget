@@ -4,6 +4,9 @@ export const SETTING_KEYS = {
   referenceCurrency: 'reference_currency',
   onboardingCompleted: 'onboarding_completed',
   lastBackupAt: 'last_backup_at',
+  privacyPolicyVersion: 'privacy_policy_version',
+  privacyAcceptedAt: 'privacy_accepted_at',
+  analyticsConsent: 'analytics_consent',
 } as const;
 
 export async function getSetting(db: Db, key: string): Promise<string | null> {

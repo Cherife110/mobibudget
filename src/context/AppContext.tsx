@@ -2,6 +2,7 @@ import React, { createContext, useCallback, useContext, useEffect, useMemo, useS
 import { ActivityIndicator, Text, View } from 'react-native';
 import { openDatabase } from '../db/database';
 import type { Db } from '../db/types';
+import { setAnalyticsEnabled } from '../lib/analytics';
 import { loadAppSettings, type AppSettings } from '../services/onboarding.service';
 import { colors } from '../theme';
 
@@ -52,6 +53,12 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     setSettings(await loadAppSettings(db));
     setRevision((r) => r + 1);
   }, [db]);
+
+  // Firebase suit l'accord enregistré (collecte coupée par défaut : voir firebase.json).
+  const analyticsConsent = settings?.analyticsConsent ?? null;
+  useEffect(() => {
+    if (analyticsConsent !== null) void setAnalyticsEnabled(analyticsConsent);
+  }, [analyticsConsent]);
 
   const value = useMemo(() => (db && settings ? { db, settings, revision, refresh } : null), [db, settings, revision, refresh]);
 

@@ -10,6 +10,7 @@
     "newArchEnabled": true,
     "android": {
       "package": "com.cherife.mobibudget",
+      "googleServicesFile": "./google-services.json",
       "versionCode": 1,
       "adaptiveIcon": {
         "foregroundImage": "./assets/adaptive-icon.png",
@@ -17,11 +18,13 @@
       },
       "allowBackup": false,
       "blockedPermissions": [
-        "android.permission.INTERNET",
         "android.permission.SYSTEM_ALERT_WINDOW",
         "android.permission.VIBRATE",
         "android.permission.READ_EXTERNAL_STORAGE",
-        "android.permission.WRITE_EXTERNAL_STORAGE"
+        "android.permission.WRITE_EXTERNAL_STORAGE",
+        "com.google.android.gms.permission.AD_ID",
+        "android.permission.ACCESS_ADSERVICES_AD_ID",
+        "android.permission.ACCESS_ADSERVICES_ATTRIBUTION"
       ]
     },
     "plugins": [
@@ -29,6 +32,7 @@
       "expo-sqlite",
       "expo-sharing",
       "expo-document-picker",
+      "@react-native-firebase/app",
       [
         "expo-splash-screen",
         {
@@ -36,7 +40,10 @@
           "image": "./assets/splash-icon.png",
           "imageWidth": 160
         }
-      ]
+      ],
+      "@react-native-firebase/analytics",
+      "expo-secure-store",
+      "expo-background-task"
     ],
     "experiments": {
       "typedRoutes": false
@@ -53,7 +60,16 @@
       },
       "eas": {
         "projectId": "b3bbfd72-57d6-4416-8442-664a5daf00ac"
-      }
+      },
+      "firebase": {
+        "apiKey": "",
+        "authDomain": "",
+        "projectId": "",
+        "appId": "",
+        "messagingSenderId": "",
+        "storageBucket": ""
+      },
+      "googleWebClientId": ""
     }
   }
 }

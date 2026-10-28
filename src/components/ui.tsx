@@ -92,6 +92,24 @@ export function Field({
   );
 }
 
+export function Checkbox({ label, hint, checked, onChange }: { label: string; hint?: string; checked: boolean; onChange: (checked: boolean) => void }) {
+  return (
+    <Pressable
+      onPress={() => onChange(!checked)}
+      accessibilityRole="checkbox"
+      accessibilityState={{ checked }}
+      accessibilityLabel={label}
+      style={styles.checkRow}
+    >
+      <Ionicons name={checked ? 'checkbox' : 'square-outline'} size={24} color={checked ? colors.primary : colors.muted} />
+      <View style={styles.checkText}>
+        <Text style={styles.checkLabel}>{label}</Text>
+        {hint ? <Text style={styles.hint}>{hint}</Text> : null}
+      </View>
+    </Pressable>
+  );
+}
+
 export function Chip({ label, selected, onPress, tone }: { label: string; selected?: boolean; onPress?: () => void; tone?: 'income' | 'expense' }) {
   const active = tone === 'income' ? colors.income : tone === 'expense' ? colors.expense : colors.primary;
   return (
@@ -210,6 +228,9 @@ const styles = StyleSheet.create({
   suffix: { fontSize: 15, color: colors.muted, fontWeight: '600', marginLeft: 8 },
   error: { color: colors.expense, fontSize: 13 },
   hint: { color: colors.muted, fontSize: 12 },
+  checkRow: { flexDirection: 'row', alignItems: 'flex-start', gap: spacing.md, minHeight: 44, paddingVertical: spacing.xs },
+  checkText: { flex: 1, gap: 2 },
+  checkLabel: { fontSize: 15, lineHeight: 24, color: colors.text },
   chipRow: { flexDirection: 'row', flexWrap: 'wrap', gap: spacing.sm },
   chip: { minHeight: 40, paddingHorizontal: 14, borderRadius: radius.pill, borderWidth: 1, borderColor: colors.border, backgroundColor: colors.card, alignItems: 'center', justifyContent: 'center' },
   chipText: { fontSize: 14, fontWeight: '600', color: colors.text },

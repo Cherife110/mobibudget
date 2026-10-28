@@ -1,0 +1,47 @@
+rules_version = '2';
+
+// MobiBudget — sauvegardes en ligne.
+// Chaque utilisateur ne peut lire et écrire QUE ses propres sauvegardes : users/{son uid}/backups/…
+// Tout le reste de la base est interdit.
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    function isOwner(uid) {
+      return request.auth != null && request.auth.uid == uid;
+    }
+
+    match /users/{uid}/backups/{backupId} {
+      allow read, delete: if isOwner(uid);
+
+      // Création : méta complète, statut « uploading », champs attendus uniquement.
+      allow create: if isOwner(uid)
+        && request.resource.data.keys().hasOnly(['id', 'createdAt', 'status', 'deviceId', 'appVersion', 'formatVersion',
+             'encrypted', 'size', 'checksum', 'chunkCount', 'summary'])
+        && request.resource.data.id == backupId
+        && request.resource.data.status == 'uploading'
+        && request.resource.data.createdAt is string
+        && request.resource.data.checksum is string && request.resource.data.checksum.size() == 64
+        && request.resource.data.chunkCount is int && request.resource.data.chunkCount > 0 && request.resource.data.chunkCount <= 400
+        && request.resource.data.encrypted is bool
+        && request.resource.data.summary is map;
+
+      // Mise à jour : uniquement le passage « uploading » → « complete ».
+      allow update: if isOwner(uid)
+        && resource.data.status == 'uploading'
+        && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['status'])
+        && request.resource.data.status == 'complete';
+
+      match /chunks/{chunkId} {
+        allow read, delete: if isOwner(uid);
+        allow create: if isOwner(uid)
+          && request.resource.data.keys().hasOnly(['i', 'data'])
+          && request.resource.data.i is int && request.resource.data.i >= 0
+          && request.resource.data.data is string && request.resource.data.data.size() <= 250000;
+      }
+    }
+
+    match /{document=**} {
+      allow read, write: if false;
+    }
+  }
+}
