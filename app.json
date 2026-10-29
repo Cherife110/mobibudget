@@ -33,6 +33,7 @@
       "expo-sharing",
       "expo-document-picker",
       "@react-native-firebase/app",
+      "@react-native-firebase/analytics",
       [
         "expo-splash-screen",
         {
@@ -41,7 +42,6 @@
           "imageWidth": 160
         }
       ],
-      "@react-native-firebase/analytics",
       "expo-secure-store",
       "expo-background-task"
     ],
